@@ -1,4 +1,3 @@
-
 <!DOCTYPE html>
 <html lang="ko">
 <head>
@@ -1906,6 +1905,15 @@
             
             previewHtml += '</div>';
             return previewHtml;
+        },
+        updateGridVisibility() {
+            // 격자 설정에 따라 캔버스 스타일 변경
+            elements.drawingCanvas.style.gridTemplateColumns = `repeat(${settings.emojiCols}, 1fr)`;
+            elements.drawingCanvas.style.gridTemplateRows = `repeat(${settings.emojiRows}, 1fr)`;
+        },
+        updateBrightness() {
+            // 밝기 설정에 따라 캔버스 스타일 변경
+            elements.drawingCanvas.style.filter = `brightness(${settings.brightness}%)`;
         }
     };
 
@@ -4666,6 +4674,87 @@
         
         // VAL 파일 모달 생성
         createExportImportModal();
+    }
+
+    // 설정 저장 함수
+    function saveSettings() {
+        try {
+            // 현재 설정 값 가져오기
+            const brushSize = parseInt(elements.brushSizeRange.value, 10);
+            const showGrid = elements.gridToggle.checked;
+            const brightness = parseInt(elements.brightnessRange.value, 10);
+            
+            // 설정 업데이트
+            settings.brushSize = brushSize;
+            settings.showGrid = showGrid;
+            settings.brightness = brightness;
+            
+            // 캔버스에 적용
+            canvasRenderer.updateGridVisibility();
+            canvasRenderer.updateBrightness();
+            
+            // 로컬 스토리지에 설정 저장
+            localStorage.setItem('valpaint_settings', JSON.stringify({
+                brushSize,
+                showGrid,
+                brightness,
+                author: settings.author
+            }));
+            
+            utils.showToast('설정이 저장되었습니다', 'success');
+            utils.hideModal(elements.settingsModal);
+        } catch (error) {
+            console.error('설정 저장 오류:', error);
+            utils.showToast('설정 저장 중 오류가 발생했습니다', 'error');
+        }
+    }
+
+    // 설정 초기화 함수
+    function resetSettings() {
+        try {
+            // 기본 설정으로 초기화
+            const defaultSettings = {
+                brushSize: 1,
+                showGrid: true,
+                brightness: 100,
+                author: settings.author // 작가명은 유지
+            };
+            
+            // UI 업데이트
+            elements.brushSizeRange.value = defaultSettings.brushSize;
+            elements.brushSizeValue.textContent = defaultSettings.brushSize;
+            elements.gridToggle.checked = defaultSettings.showGrid;
+            elements.brightnessRange.value = defaultSettings.brightness;
+            elements.brightnessValue.textContent = `${defaultSettings.brightness}%`;
+            
+            // 설정 적용
+            settings.brushSize = defaultSettings.brushSize;
+            settings.showGrid = defaultSettings.showGrid;
+            settings.brightness = defaultSettings.brightness;
+            
+            // 캔버스에 적용
+            canvasRenderer.updateGridVisibility();
+            canvasRenderer.updateBrightness();
+            
+            // 로컬 스토리지에 설정 저장
+            localStorage.setItem('valpaint_settings', JSON.stringify(defaultSettings));
+            
+            utils.showToast('설정이 초기화되었습니다', 'info');
+        } catch (error) {
+            console.error('설정 초기화 오류:', error);
+            utils.showToast('설정 초기화 중 오류가 발생했습니다', 'error');
+        }
+    }
+
+    // 설정 UI 업데이트 함수
+    function updateSettingsUI() {
+        // 현재 설정 값을 UI에 반영
+        elements.brushSizeRange.value = settings.brushSize;
+        elements.brushSizeValue.textContent = settings.brushSize;
+        elements.gridToggle.checked = settings.showGrid;
+        elements.brightnessRange.value = settings.brightness;
+        elements.brightnessValue.textContent = `${settings.brightness}%`;
+        elements.authorDisplay.textContent = api.getUsername();
     }
     </script>
 </body>
