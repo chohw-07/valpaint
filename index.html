@@ -1,0 +1,4672 @@
+
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Valpaint</title>
+    <link href="https://fonts.cdnfonts.com/css/valorant" rel="stylesheet">
+    <!-- Firebase SDK 제거, 불필요한 외부 라이브러리 의존성 제거 -->
+    <style>
+        :root {
+            --main-bg: #0f1923;
+            --secondary-bg: #1a242d;
+            --accent-color: #ff4655;
+            --accent-hover: #ff6b76;
+            --text-color: #ece8e1;
+            --text-muted: #8b978f;
+            --border-color: #1f2326;
+            --btn-bg: #232c34;
+            --btn-hover: #2b3842;
+            --cell-active: #ff4655;
+            --cell-empty: #1a242d;
+            --cell-border: #2d3844;
+            --canvas-bg: #0f1923;
+            --modal-bg: rgba(15, 25, 35, 0.9);
+            --valorant-font: 'VALORANT', sans-serif;
+        }
+
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+            font-family: 'Tahoma', sans-serif;
+            color: var(--text-color);
+        }
+        
+        .valorant-text {
+            font-family: var(--valorant-font);
+            letter-spacing: 1px;
+        }
+
+        body {
+            background-color: var(--main-bg);
+            height: 100vh;
+            overflow: hidden;
+            position: relative;
+        }
+
+        body::before {
+            content: '';
+            position: absolute;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            background: 
+                radial-gradient(circle at 30% 25%, rgba(255, 70, 85, 0.03) 0%, transparent 25%),
+                radial-gradient(circle at 70% 75%, rgba(255, 70, 85, 0.03) 0%, transparent 25%);
+            z-index: -1;
+        }
+
+        .container {
+            width: 100%;
+            height: 100vh;
+            display: flex;
+            flex-direction: column;
+        }
+
+        .header {
+            padding: 1rem 2rem;
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            background-color: var(--secondary-bg);
+            box-shadow: 0 2px 10px rgba(0, 0, 0, 0.3);
+            z-index: 10;
+        }
+
+        .logo {
+            font-family: var(--valorant-font);
+            font-size: 2rem;
+            color: var(--accent-color);
+            text-shadow: 0 0 5px rgba(255, 70, 85, 0.5);
+        }
+
+        .toolbar {
+            padding: 0.75rem 1.5rem;
+            display: flex;
+            flex-wrap: wrap;
+            gap: 10px;
+            background-color: var(--secondary-bg);
+            border-bottom: 1px solid var(--border-color);
+        }
+
+        .tool-group {
+            display: flex;
+            align-items: center;
+            gap: 8px;
+            margin-right: 15px;
+        }
+
+        .tool-label {
+            font-size: 0.9rem;
+            color: var(--text-muted);
+        }
+
+        .btn {
+            padding: 0.5rem 1rem;
+            background-color: var(--btn-bg);
+            border: 1px solid var(--border-color);
+            color: var(--text-color);
+            cursor: pointer;
+            transition: all 0.2s ease;
+            font-size: 0.9rem;
+            min-width: 40px;
+            text-align: center;
+            border-radius: 2px;
+            position: relative;
+            overflow: hidden;
+        }
+
+        .btn:hover {
+            background-color: var(--btn-hover);
+            transform: translateY(-2px);
+            box-shadow: 0 4px 8px rgba(0, 0, 0, 0.2);
+        }
+
+        .btn:active {
+            transform: translateY(0) scale(0.98);
+            box-shadow: 0 1px 2px rgba(0, 0, 0, 0.2);
+        }
+
+        .btn-accent {
+            background-color: var(--accent-color);
+            border-color: var(--accent-color);
+            font-family: var(--valorant-font);
+        }
+
+        .btn-accent:hover {
+            background-color: var(--accent-hover);
+        }
+        
+        .loading-screen {
+            position: fixed;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            background-color: var(--main-bg);
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            z-index: 9999;
+        }
+        
+        .loading-content {
+            text-align: center;
+        }
+        
+        .user-profile {
+            display: flex;
+            align-items: center;
+            gap: 8px;
+            padding: 6px 12px;
+            background-color: var(--secondary-bg);
+            border-radius: 4px;
+            border: 1px solid var(--border-color);
+        }
+
+        .btn::after {
+            content: '';
+            position: absolute;
+            top: 50%;
+            left: 50%;
+            width: 5px;
+            height: 5px;
+            background: rgba(255, 255, 255, 0.5);
+            opacity: 0;
+            border-radius: 100%;
+            transform: scale(1, 1) translate(-50%, -50%);
+            transform-origin: 50% 50%;
+        }
+
+        .btn:active::after {
+            animation: ripple 0.6s ease-out;
+        }
+
+        @keyframes ripple {
+            0% {
+                opacity: 1;
+                transform: scale(0, 0) translate(-50%, -50%);
+            }
+            100% {
+                opacity: 0;
+                transform: scale(20, 20) translate(-50%, -50%);
+            }
+        }
+
+        .btn-group {
+            display: flex;
+        }
+
+        .btn-group .btn {
+            border-radius: 0;
+            border-right: none;
+        }
+
+        .btn-group .btn:first-child {
+            border-top-left-radius: 2px;
+            border-bottom-left-radius: 2px;
+        }
+
+        .btn-group .btn:last-child {
+            border-top-right-radius: 2px;
+            border-bottom-right-radius: 2px;
+            border-right: 1px solid var(--border-color);
+        }
+
+        .btn-group .btn.active {
+            background-color: var(--accent-color);
+            color: #fff;
+        }
+
+        .btn-round {
+            width: 30px;
+            height: 30px;
+            border-radius: 50%;
+            padding: 0;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            font-size: 1.2rem;
+        }
+
+        .btn-icon {
+            display: flex;
+            align-items: center;
+        }
+
+        .btn-icon svg {
+            margin-right: 5px;
+            width: 16px;
+            height: 16px;
+        }
+
+        .main-content {
+            flex: 1;
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            overflow: hidden;
+            position: relative;
+            padding: 1rem;
+            background-color: var(--main-bg);
+        }
+
+        .canvas-container {
+            position: relative;
+            border: 1px solid var(--border-color);
+            box-shadow: 0 0 20px rgba(0, 0, 0, 0.3);
+            overflow: hidden;
+            background-color: var(--canvas-bg);
+            max-width: 100%;
+            max-height: 100%;
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            transition: box-shadow 0.3s ease;
+        }
+        
+        .canvas-container:hover {
+            box-shadow: 0 0 30px rgba(255, 70, 85, 0.1);
+        }
+
+        .drawing-canvas {
+            display: grid;
+            background-color: var(--canvas-bg);
+            margin: 0 auto;
+        }
+
+        .emoji-cell {
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            border: 1px solid var(--cell-border);
+            background-color: var(--cell-empty);
+            cursor: pointer;
+            font-size: 1.5rem;
+            transition: all 0.2s;
+            user-select: none;
+        }
+
+        .emoji-cell:hover {
+            background-color: rgba(45, 56, 68, 0.6);
+            transform: scale(1.05);
+            z-index: 1;
+        }
+
+        .emoji-cell.active {
+            background-color: var(--cell-active);
+            color: white;
+            transform: scale(1);
+            animation: cellActivate 0.3s ease;
+        }
+        
+        @keyframes cellActivate {
+            0% { transform: scale(1.1); }
+            100% { transform: scale(1); }
+        }
+        
+        .emoji-cell.transparent {
+            background-color: transparent;
+            border-color: rgba(45, 56, 68, 0.3);
+        }
+        
+        .emoji-cell.active.transparent {
+            background-color: var(--cell-active);
+        }
+
+        .modal {
+            display: none;
+            position: fixed;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            background-color: var(--modal-bg);
+            z-index: 100;
+            justify-content: center;
+            align-items: center;
+            opacity: 0;
+            transition: opacity 0.3s ease;
+        }
+        
+        .modal.show {
+            opacity: 1;
+        }
+
+        .modal-content {
+            background-color: var(--secondary-bg);
+            border: 1px solid var(--border-color);
+            border-radius: 2px;
+            padding: 1.5rem;
+            width: 480px;
+            max-width: 90%;
+            box-shadow: 0 4px 20px rgba(0, 0, 0, 0.5);
+            position: relative;
+            transform: translateY(20px);
+            opacity: 0;
+            transition: transform 0.3s ease, opacity 0.3s ease;
+        }
+        
+        .modal.show .modal-content {
+            transform: translateY(0);
+            opacity: 1;
+        }
+
+        .modal-header {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            margin-bottom: 1rem;
+            border-bottom: 1px solid var(--border-color);
+            padding-bottom: 0.5rem;
+        }
+
+        .modal-title {
+            font-family: var(--valorant-font);
+            color: var(--accent-color);
+            font-size: 1.2rem;
+        }
+
+        .modal-close {
+            cursor: pointer;
+            color: var(--text-muted);
+            font-size: 1.5rem;
+            line-height: 1;
+            transition: color 0.2s;
+        }
+        
+        .modal-close:hover {
+            color: var(--accent-color);
+        }
+
+        .modal-body {
+            margin-bottom: 1.5rem;
+        }
+
+        .modal-footer {
+            display: flex;
+            justify-content: flex-end;
+            gap: 10px;
+        }
+
+        .form-group {
+            margin-bottom: 1rem;
+        }
+
+        .form-label {
+            display: block;
+            margin-bottom: 0.5rem;
+            color: var(--text-muted);
+        }
+
+        .form-control {
+            width: 100%;
+            padding: 0.5rem;
+            border: 1px solid var(--border-color);
+            background-color: var(--btn-bg);
+            color: var(--text-color);
+            border-radius: 2px;
+            transition: border-color 0.2s, box-shadow 0.2s;
+        }
+        
+        .form-control:focus {
+            border-color: var(--accent-color);
+            outline: none;
+            box-shadow: 0 0 0 2px rgba(255, 70, 85, 0.2);
+        }
+
+        .form-range {
+            -webkit-appearance: none;
+            width: 100%;
+            height: 10px;
+            background: var(--main-bg);
+            border-radius: 5px;
+            outline: none;
+        }
+
+        .form-range::-webkit-slider-thumb {
+            -webkit-appearance: none;
+            width: 20px;
+            height: 20px;
+            background: var(--accent-color);
+            border-radius: 50%;
+            cursor: pointer;
+            transition: transform 0.2s;
+        }
+        
+        .form-range::-webkit-slider-thumb:hover {
+            transform: scale(1.1);
+        }
+
+        .file-list {
+            max-height: 200px;
+            overflow-y: auto;
+            margin-bottom: 1rem;
+            border: 1px solid var(--border-color);
+            background-color: var(--main-bg);
+        }
+
+        .file-item {
+            padding: 0.5rem;
+            cursor: pointer;
+            border-bottom: 1px solid var(--border-color);
+            transition: background-color 0.2s;
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+        }
+
+        .file-item:last-child {
+            border-bottom: none;
+        }
+
+        .file-item:hover {
+            background-color: var(--btn-bg);
+        }
+
+        .file-item.selected {
+            background-color: var(--btn-hover);
+        }
+
+        .file-item-actions {
+            display: flex;
+            gap: 5px;
+        }
+
+        .file-preview {
+            padding: 0.5rem;
+            border: 1px solid var(--border-color);
+            background-color: var(--main-bg);
+            overflow: hidden;
+            font-family: monospace;
+            max-height: 80px;
+            margin-bottom: 1rem;
+        }
+
+        .online-container {
+            display: flex;
+            flex-direction: column;
+            height: 100%;
+            padding: 20px;
+            overflow: auto;
+        }
+
+        .online-header {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            margin-bottom: 20px;
+        }
+
+        .online-tabs {
+            display: flex;
+            margin-bottom: 20px;
+            border-bottom: 1px solid var(--border-color);
+        }
+
+        .online-tab {
+            padding: 10px 20px;
+            cursor: pointer;
+            background-color: var(--secondary-bg);
+            border: 1px solid var(--border-color);
+            border-bottom: none;
+            margin-right: 5px;
+            border-top-left-radius: 4px;
+            border-top-right-radius: 4px;
+            transition: all 0.2s;
+        }
+        
+        .online-tab:hover {
+            background-color: var(--btn-hover);
+        }
+
+        .online-tab.active {
+            background-color: var(--accent-color);
+            border-color: var(--accent-color);
+        }
+
+        .online-gallery {
+            display: grid;
+            grid-template-columns: repeat(auto-fill, minmax(200px, 1fr));
+            gap: 20px;
+        }
+
+        .gallery-item {
+            background-color: var(--secondary-bg);
+            border: 1px solid var(--border-color);
+            border-radius: 4px;
+            overflow: hidden;
+            transition: transform 0.3s, box-shadow 0.3s;
+        }
+
+        .gallery-item:hover {
+            transform: translateY(-5px);
+            box-shadow: 0 5px 15px rgba(0, 0, 0, 0.3);
+        }
+
+        .gallery-preview {
+            height: 150px;
+            background-color: var(--main-bg);
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            font-family: monospace;
+            padding: 10px;
+            overflow: hidden;
+        }
+
+        .gallery-info {
+            padding: 10px;
+        }
+
+        .gallery-title {
+            font-weight: bold;
+            margin-bottom: 5px;
+            word-break: break-all;
+        }
+
+        .gallery-creator {
+            font-size: 0.8rem;
+            color: var(--text-muted);
+        }
+
+        .gallery-stats {
+            display: flex;
+            justify-content: space-between;
+            font-size: 0.8rem;
+            color: var(--text-muted);
+            margin-top: 5px;
+        }
+        
+        .gallery-favorite {
+            cursor: pointer;
+            transition: color 0.2s;
+        }
+        
+        .gallery-favorite:hover {
+            color: var(--accent-color);
+        }
+        
+        .gallery-favorite.active {
+            color: var(--accent-color);
+        }
+
+        .share-form {
+            margin-bottom: 20px;
+        }
+
+        .share-option {
+            margin-bottom: 10px;
+            display: flex;
+            align-items: center;
+        }
+
+        .share-option input[type="radio"] {
+            margin-right: 10px;
+        }
+
+        @media (max-width: 768px) {
+            .header {
+                padding: 0.5rem 1rem;
+            }
+
+            .toolbar {
+                padding: 0.5rem 1rem;
+                overflow-x: auto;
+                justify-content: flex-start;
+            }
+
+            .btn {
+                padding: 0.4rem 0.8rem;
+                font-size: 0.8rem;
+            }
+
+            .tool-group {
+                margin-right: 10px;
+            }
+
+            .tool-label {
+                display: none;
+            }
+
+            .online-gallery {
+                grid-template-columns: repeat(auto-fill, minmax(150px, 1fr));
+            }
+        }
+
+        .shortcut {
+            display: inline-block;
+            background-color: var(--secondary-bg);
+            padding: 2px 6px;
+            border-radius: 3px;
+            font-family: monospace;
+            font-size: 0.8rem;
+            border: 1px solid var(--border-color);
+            margin-left: 5px;
+        }
+
+        .brush-cursor {
+            position: absolute;
+            pointer-events: none;
+            border-radius: 50%;
+            border: 2px solid var(--accent-color);
+            transform: translate(-50%, -50%);
+            z-index: 1000;
+            transition: width 0.2s, height 0.2s;
+        }
+
+        .spinner {
+            display: inline-block;
+            width: 30px;
+            height: 30px;
+            border: 3px solid rgba(255, 70, 85, 0.3);
+            border-radius: 50%;
+            border-top-color: var(--accent-color);
+            animation: spin 1s ease-in-out infinite;
+        }
+
+        @keyframes spin {
+            to { transform: rotate(360deg); }
+        }
+
+        .d-flex {
+            display: flex;
+        }
+
+        .align-center {
+            align-items: center;
+        }
+
+        .justify-between {
+            justify-content: space-between;
+        }
+
+        .g-10 {
+            gap: 10px;
+        }
+
+        .mb-10 {
+            margin-bottom: 10px;
+        }
+
+        .text-center {
+            text-align: center;
+        }
+
+        .hidden {
+            display: none !important;
+        }
+
+        .tooltip {
+            position: relative;
+            display: inline-block;
+        }
+
+        .tooltip .tooltip-text {
+            visibility: hidden;
+            width: 120px;
+            background-color: var(--secondary-bg);
+            color: var(--text-color);
+            text-align: center;
+            border-radius: 6px;
+            padding: 5px;
+            position: absolute;
+            z-index: 1;
+            bottom: 125%;
+            left: 50%;
+            margin-left: -60px;
+            opacity: 0;
+            transition: opacity 0.3s;
+            border: 1px solid var(--border-color);
+        }
+
+        .tooltip:hover .tooltip-text {
+            visibility: visible;
+            opacity: 1;
+        }
+
+        #toast-container {
+            position: fixed;
+            bottom: 20px;
+            right: 20px;
+            z-index: 1000;
+        }
+
+        .toast {
+            padding: 12px 20px;
+            margin-bottom: 10px;
+            border-radius: 4px;
+            box-shadow: 0 3px 10px rgba(0, 0, 0, 0.3);
+            color: white;
+            font-family: var(--valorant-font);
+            letter-spacing: 1px;
+            animation: toastIn 0.3s, toastOut 0.3s 2.7s forwards;
+            max-width: 350px;
+            transform-origin: right bottom;
+            position: relative;
+            overflow: hidden;
+            background-color: rgba(15, 25, 35, 0.95);
+            border-left: 4px solid #1e90ff;
+        }
+        
+        .toast::before {
+            content: '';
+            position: absolute;
+            top: 0;
+            left: 0;
+            height: 100%;
+            width: 4px;
+        }
+
+        .toast.success {
+            border-left-color: #00c853;
+        }
+        
+        .toast.success::before {
+            background: #00c853;
+        }
+
+        .toast.error {
+            border-left-color: #ff4655;
+        }
+        
+        .toast.error::before {
+            background: #ff4655;
+        }
+
+        .toast.info {
+            border-left-color: #1e90ff;
+        }
+        
+        .toast.info::before {
+            background: #1e90ff;
+        }
+
+        @keyframes toastIn {
+            from { 
+                opacity: 0; 
+                transform: translateX(20px) scale(0.8); 
+            }
+            to { 
+                opacity: 1; 
+                transform: translateX(0) scale(1); 
+            }
+        }
+
+        @keyframes toastOut {
+            from { 
+                opacity: 1; 
+                transform: translateX(0) scale(1); 
+            }
+            to { 
+                opacity: 0; 
+                transform: translateX(20px) scale(0.8); 
+            }
+        }
+        
+        .switch {
+            position: relative;
+            display: inline-block;
+            width: 50px;
+            height: 24px;
+        }
+
+        .switch input {
+            opacity: 0;
+            width: 0;
+            height: 0;
+        }
+
+        .slider {
+            position: absolute;
+            cursor: pointer;
+            top: 0;
+            left: 0;
+            right: 0;
+            bottom: 0;
+            background-color: var(--main-bg);
+            transition: .4s;
+            border-radius: 24px;
+            border: 1px solid var(--border-color);
+        }
+
+        .slider:before {
+            position: absolute;
+            content: "";
+            height: 16px;
+            width: 16px;
+            left: 4px;
+            bottom: 3px;
+            background-color: var(--text-muted);
+            transition: .4s;
+            border-radius: 50%;
+        }
+
+        input:checked + .slider {
+            background-color: var(--accent-color);
+        }
+
+        input:checked + .slider:before {
+            transform: translateX(26px);
+            background-color: white;
+        }
+        
+        .favorite-btn {
+            cursor: pointer;
+            transition: all 0.2s;
+        }
+        
+        .favorite-btn:hover {
+            transform: scale(1.1);
+            color: var(--accent-color);
+        }
+        
+        .favorite-btn.active {
+            color: var(--accent-color);
+        }
+        
+        .empty-state {
+            text-align: center;
+            padding: 40px 20px;
+            color: var(--text-muted);
+        }
+        
+        .empty-state svg {
+            margin-bottom: 15px;
+            opacity: 0.7;
+        }
+        
+        .empty-state-title {
+            font-size: 1.2rem;
+            margin-bottom: 10px;
+        }
+        
+        .empty-state-text {
+            font-size: 0.9rem;
+            max-width: 300px;
+            margin: 0 auto;
+        }
+
+        /* 개선된 토스트 메시지 스타일 */
+        .toast {
+            display: flex;
+            align-items: center;
+            padding: 14px 20px;
+            margin-bottom: 12px;
+            border-radius: 4px;
+            box-shadow: 0 4px 12px rgba(0, 0, 0, 0.4);
+            color: white;
+            font-family: var(--valorant-font);
+            letter-spacing: 1px;
+            animation: toastIn 0.4s, toastOut 0.4s 3.6s forwards;
+            max-width: 350px;
+            transform-origin: right bottom;
+            position: relative;
+            overflow: hidden;
+            background-color: rgba(15, 25, 35, 0.98);
+        }
+
+        .toast-icon {
+            margin-right: 12px;
+        }
+
+        .toast-content {
+            flex: 1;
+        }
+
+        /* 파일 저장/로드 개선 */
+        .format-selector {
+            display: flex;
+            margin-bottom: 10px;
+            gap: 10px;
+        }
+
+        .format-option {
+            flex: 1;
+            text-align: center;
+            padding: 8px;
+            border: 1px solid var(--border-color);
+            background-color: var(--btn-bg);
+            cursor: pointer;
+            transition: all 0.2s;
+        }
+
+        .format-option:hover {
+            background-color: var(--btn-hover);
+        }
+
+        .format-option.active {
+            background-color: var(--accent-color);
+            border-color: var(--accent-color);
+        }
+    </style>
+</head>
+<body>
+    <div id="loading-screen" class="loading-screen">
+    <div class="loading-content">
+        <h1 class="valorant-text" style="color: var(--accent-color); font-size: 3rem; margin-bottom: 20px;">VALPAINT</h1>
+        <div class="spinner" style="width: 50px; height: 50px; margin-bottom: 20px;"></div>
+        <p>로딩 중...</p>
+    </div>
+</div>
+
+<div id="username-modal" class="modal">
+    <div class="modal-content">
+        <div class="modal-header">
+            <h3 class="modal-title">VALPAINT에 오신 것을 환영합니다!</h3>
+        </div>
+        <div class="modal-body">
+            <p>처음 방문하셨네요! 작가명을 설정해주세요.</p>
+            <div class="form-group" style="margin-top: 20px;">
+                <label class="form-label">작가명</label>
+                <input type="text" class="form-control" id="usernameInput" placeholder="사용할 작가명을 입력하세요">
+            </div>
+        </div>
+        <div class="modal-footer">
+            <button id="usernameSubmitBtn" class="btn btn-accent">시작하기</button>
+        </div>
+    </div>
+</div>
+
+<div class="container">
+        <!-- 헤더 -->
+        <header class="header">
+            <h1 class="logo valorant-text">VALPAINT</h1>
+            <div class="d-flex align-center g-10">
+                <span class="user-profile">
+                    <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                        <path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2"></path>
+                        <circle cx="12" cy="7" r="4"></circle>
+                    </svg>
+                    <span id="userDisplayName">작가명</span>
+                </span>
+                <button id="onlineBtn" class="btn btn-icon">
+                    <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                        <path d="M3 9l9-7 9 7v11a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z"></path>
+                        <polyline points="9 22 9 12 15 12 15 22"></polyline>
+                    </svg>
+                    <span class="valorant-text">갤러리</span>
+                </button>
+                <button id="settingsBtn" class="btn btn-icon">
+                    <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                        <circle cx="12" cy="12" r="3"></circle>
+                        <path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1 0 2.83 2 2 0 0 1-2.83 0l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-2 2 2 2 0 0 1-2-2v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83 0 2 2 0 0 1 0-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1-2-2 2 2 0 0 1 2-2h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 0-2.83 2 2 0 0 1 2.83 0l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 2-2 2 2 0 0 1 2 2v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 0 2 2 0 0 1 0 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 2 2 2 2 0 0 1-2 2h-.09a1.65 1.65 0 0 0-1.51 1z"></path>
+                    </svg>
+                    <span class="valorant-text">설정</span>
+                </button>
+                <button id="helpBtn" class="btn btn-icon">
+                    <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                        <circle cx="12" cy="12" r="10"></circle>
+                        <path d="M9.09 9a3 3 0 0 1 5.83 1c0 2-3 3-3 3"></path>
+                        <line x1="12" y1="17" x2="12.01" y2="17"></line>
+                    </svg>
+                    <span class="valorant-text">도움말</span>
+                </button>
+            </div>
+        </header>
+
+        <!-- 도구바 -->
+        <div class="toolbar">
+            <div class="tool-group">
+                <span class="tool-label">도구:</span>
+                <button id="drawEraseBtn" class="btn btn-icon tooltip">
+                    <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                        <path d="M12 19l7-7 3 3-7 7-3-3z"></path>
+                        <path d="M18 13l-1.5-7.5L2 2l3.5 14.5L13 18l5-5z"></path>
+                        <path d="M2 2l7.586 7.586"></path>
+                        <circle cx="11" cy="11" r="2"></circle>
+                    </svg>
+                    <span class="valorant-text">그리기</span>
+                    <span class="tooltip-text">단축키: Q</span>
+                </button>
+                <button id="clearBtn" class="btn btn-icon tooltip">
+                    <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                        <rect x="3" y="3" width="18" height="18" rx="2" ry="2"></rect>
+                        <line x1="8" y1="10" x2="16" y2="10"></line>
+                        <line x1="8" y1="14" x2="16" y2="14"></line>
+                    </svg>
+                    <span class="valorant-text">지우기</span>
+                    <span class="tooltip-text">단축키: Delete</span>
+                </button>
+            </div>
+
+            <div class="tool-group" id="brushSizeGroup">
+                <span class="tool-label">브러시:</span>
+                <button id="brushSizeDownBtn" class="btn btn-round tooltip">
+                    -
+                    <span class="tooltip-text">단축키: -</span>
+                </button>
+                <span id="brushSizeDisplay" class="tool-label">1</span>
+                <button id="brushSizeUpBtn" class="btn btn-round tooltip">
+                    +
+                    <span class="tooltip-text">단축키: +</span>
+                </button>
+            </div>
+
+            <div class="tool-group">
+                <button id="saveBtn" class="btn btn-icon tooltip">
+                    <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                        <path d="M19 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11l5 5v11a2 2 0 0 1-2 2z"></path>
+                        <polyline points="17 21 17 13 7 13 7 21"></polyline>
+                        <polyline points="7 3 7 8 15 8"></polyline>
+                    </svg>
+                    <span class="valorant-text">저장</span>
+                    <span class="tooltip-text">단축키: Ctrl+S</span>
+                </button>
+                <button id="loadBtn" class="btn btn-icon tooltip">
+                    <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                        <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"></path>
+                        <polyline points="7 10 12 15 17 10"></polyline>
+                        <line x1="12" y1="15" x2="12" y2="3"></line>
+                    </svg>
+                    <span class="valorant-text">불러오기</span>
+                    <span class="tooltip-text">단축키: Ctrl+O</span>
+                </button>
+                <button id="exportImportBtn" class="btn btn-icon tooltip">
+                    <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                        <path d="M16 17l5-5-5-5"></path>
+                        <path d="M8 7l-5 5 5 5"></path>
+                        <line x1="21" y1="12" x2="9" y2="12"></line>
+                    </svg>
+                    <span class="valorant-text">내보내기/가져오기</span>
+                    <span class="tooltip-text">단축키: Ctrl+E</span>
+                </button>
+                <button id="copyBtn" class="btn btn-icon tooltip">
+                    <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                        <rect x="9" y="9" width="13" height="13" rx="2" ry="2"></rect>
+                        <path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"></path>
+                    </svg>
+                    <span class="valorant-text">복사</span>
+                    <span class="tooltip-text">단축키: Ctrl+C</span>
+                </button>
+                <button id="pasteBtn" class="btn btn-icon tooltip">
+                    <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                        <path d="M16 4h2a2 2 0 0 1 2 2v14a2 2 0 0 1-2 2H6a2 2 0 0 1-2-2V6a2 2 0 0 1 2-2h2"></path>
+                        <rect x="8" y="2" width="8" height="4" rx="1" ry="1"></rect>
+                    </svg>
+                    <span class="valorant-text">붙여넣기</span>
+                    <span class="tooltip-text">단축키: Ctrl+V</span>
+                </button>
+                <button id="shareBtn" class="btn btn-icon btn-accent">
+                    <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                        <circle cx="18" cy="5" r="3"></circle>
+                        <circle cx="6" cy="12" r="3"></circle>
+                        <circle cx="18" cy="19" r="3"></circle>
+                        <line x1="8.59" y1="13.51" x2="15.42" y2="17.49"></line>
+                        <line x1="15.41" y1="6.51" x2="8.59" y2="10.49"></line>
+                    </svg>
+                    <span class="valorant-text">온라인 공유</span>
+                </button>
+            </div>
+        </div>
+
+        <!-- 메인 콘텐츠 영역 -->
+        <div class="main-content">
+            <div class="canvas-container">
+                <div id="drawingCanvas" class="drawing-canvas"></div>
+            </div>
+        </div>
+    </div>
+
+    <!-- 설정 모달 -->
+    <div id="settingsModal" class="modal">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h3 class="modal-title valorant-text">VALPAINT 설정</h3>
+                <span class="modal-close">&times;</span>
+            </div>
+            <div class="modal-body">
+                <div class="form-group">
+                    <label class="form-label">셀 크기</label>
+                    <input type="range" class="form-range" id="cellSizeRange" min="20" max="100" value="40">
+                    <div class="d-flex justify-between">
+                        <span>작게</span>
+                        <span id="cellSizeValue">40px</span>
+                        <span>크게</span>
+                    </div>
+                </div>
+                <div class="form-group">
+                    <label class="form-label">브러시 크기 (성능 최적화: 작은 값 권장)</label>
+                    <input type="range" class="form-range" id="brushSizeRange" min="1" max="3" value="1">
+                    <div class="d-flex justify-between">
+                        <span>1</span>
+                        <span id="brushSizeValue">1</span>
+                        <span>3</span>
+                    </div>
+                </div>
+                <div class="form-group">
+                    <div class="d-flex align-center justify-between">
+                        <label class="form-label">이모지 모드 배경</label>
+                        <label class="switch">
+                            <input type="checkbox" id="bgModeSwitch">
+                            <span class="slider"></span>
+                        </label>
+                    </div>
+                    <div class="d-flex justify-between">
+                        <span>사각형</span>
+                        <span>투명</span>
+                    </div>
+                </div>
+                <div class="form-group">
+                    <div class="d-flex align-center justify-between">
+                        <label class="form-label">커스텀 이모지</label>
+                        <label class="switch">
+                            <input type="checkbox" id="customModeSwitch">
+                            <span class="slider"></span>
+                        </label>
+                    </div>
+                </div>
+                <div id="customEmojiSettings" style="display: none;">
+                    <div class="form-group">
+                        <label class="form-label">색칠된 이모지</label>
+                        <input type="text" class="form-control" id="filledEmojiInput" maxlength="1">
+                    </div>
+                    <div class="form-group">
+                        <label class="form-label">색칠 안 된 이모지</label>
+                        <input type="text" class="form-control" id="emptyEmojiInput" maxlength="1">
+                    </div>
+                </div>
+            </div>
+            <div class="modal-footer">
+                <button id="settingsCancelBtn" class="btn"><span class="valorant-text">취소</span></button>
+                <button id="settingsSaveBtn" class="btn btn-accent"><span class="valorant-text">저장</span></button>
+            </div>
+        </div>
+    </div>
+
+    <!-- 파일 관리 모달 -->
+    <div id="fileModal" class="modal">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h3 class="modal-title" id="fileModalTitle">파일 저장</h3>
+                <span class="modal-close">&times;</span>
+            </div>
+            <div class="modal-body">
+                <div id="saveFormGroup" class="form-group">
+                    <label class="form-label">파일 이름</label>
+                    <input type="text" class="form-control" id="fileNameInput" placeholder="파일 이름 입력">
+                </div>
+                <div id="fileListGroup">
+                    <label class="form-label">파일 목록</label>
+                    <div class="file-list" id="fileList"></div>
+                    <div class="file-preview" id="filePreview"></div>
+                </div>
+            </div>
+            <div class="modal-footer">
+                <button id="fileModalCancelBtn" class="btn">취소</button>
+                <button id="fileDeleteBtn" class="btn" style="display: none;">삭제</button>
+                <button id="fileExportBtn" class="btn" style="display: none;">내보내기</button>
+                <button id="fileActionBtn" class="btn btn-accent">저장</button>
+            </div>
+        </div>
+    </div>
+    
+    <!-- 파일 내보내기/가져오기 모달 -->
+    <div id="exportImportModal" class="modal">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h3 class="modal-title valorant-text" id="exportImportTitle">파일 내보내기/가져오기</h3>
+                <span class="modal-close">&times;</span>
+            </div>
+            <div class="modal-body">
+                <div class="action-buttons" style="display: flex; gap: 10px; margin-bottom: 20px;">
+                    <button id="exportBtn" class="btn btn-accent" style="flex: 1;">
+                        <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                            <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"></path>
+                            <polyline points="17 8 12 3 7 8"></polyline>
+                            <line x1="12" y1="3" x2="12" y2="15"></line>
+                        </svg>
+                        <span class="valorant-text">내보내기</span>
+                    </button>
+                    <button id="importBtn" class="btn btn-accent" style="flex: 1;">
+                        <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                            <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"></path>
+                            <polyline points="7 10 12 15 17 10"></polyline>
+                            <line x1="12" y1="15" x2="12" y2="3"></line>
+                        </svg>
+                        <span class="valorant-text">가져오기</span>
+                    </button>
+                </div>
+                
+                <div id="importFileInput" style="display: none;" class="form-group">
+                    <label class="form-label">VAL 파일 선택</label>
+                    <input type="file" class="form-control" id="fileInput" accept=".val">
+                    <p style="margin-top: 10px; color: var(--text-muted);">* .val 확장자 파일만 지원합니다.</p>
+                </div>
+                
+                <div id="exportFileNameGroup" style="display: none;" class="form-group">
+                    <label class="form-label">내보낼 파일 이름</label>
+                    <input type="text" class="form-control" id="exportFileName" placeholder="파일 이름 입력">
+                </div>
+                
+                <div id="fileAuthorInfo" class="form-group" style="margin-top: 20px;">
+                    <div class="info-box" style="background-color: var(--main-bg); border: 1px solid var(--border-color); padding: 10px; border-radius: 4px;">
+                        <p><strong>제작자:</strong> <span id="fileAuthorText">${settings.author}</span></p>
+                        <p><strong>버전:</strong> <span id="fileVersionText">${settings.version}</span></p>
+                    </div>
+                </div>
+            </div>
+            <div class="modal-footer">
+                <button id="exportImportCancelBtn" class="btn">취소</button>
+                <button id="executeExportImportBtn" class="btn btn-accent" style="display: none;">실행</button>
+            </div>
+        </div>
+    </div>
+
+    <!-- 공유 모달 -->
+    <div id="shareModal" class="modal">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h3 class="modal-title">온라인 공유</h3>
+                <span class="modal-close">&times;</span>
+            </div>
+            <div class="modal-body">
+                <div class="form-group">
+                    <label class="form-label">공유 제목</label>
+                    <input type="text" class="form-control" id="shareTitleInput" placeholder="작품의 제목을 입력하세요">
+                </div>
+                <div class="form-group">
+                    <label class="form-label">태그 (쉼표로 구분)</label>
+                    <input type="text" class="form-control" id="shareTagsInput" placeholder="예: 풍경,동물,아트">
+                </div>
+                <div class="form-group">
+                    <label class="form-label">설명 (선택사항)</label>
+                    <textarea class="form-control" id="shareDescInput" rows="3" placeholder="작품에 대한 설명을 입력하세요"></textarea>
+                </div>
+                <div id="sharePreview" class="file-preview text-center">
+                    <!-- 미리보기 내용 -->
+                </div>
+            </div>
+            <div class="modal-footer">
+                <button id="shareModalCancelBtn" class="btn">취소</button>
+                <button id="shareActionBtn" class="btn btn-accent">공유하기</button>
+            </div>
+        </div>
+    </div>
+
+    <!-- 온라인 갤러리 모달 -->
+    <div id="onlineModal" class="modal">
+        <div class="modal-content" style="width: 80%; max-width: 1000px; height: 80vh;">
+            <div class="modal-header">
+                <h3 class="modal-title valorant-text">VALPAINT 온라인 갤러리</h3>
+                <span class="modal-close">&times;</span>
+            </div>
+            <div class="online-container">
+                <div class="online-tabs">
+                    <div class="online-tab active valorant-text" data-tab="my">내 작품</div>
+                    <div class="online-tab valorant-text" data-tab="public">공개 작품</div>
+                    <div class="online-tab valorant-text" data-tab="favorites">즐겨찾기</div>
+                </div>
+                <div class="d-flex justify-between align-center mb-10">
+                    <input type="text" class="form-control" id="searchInput" placeholder="검색어 입력..." style="width: 250px;">
+                    <button id="refreshGalleryBtn" class="btn valorant-text">
+                        <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                            <path d="M23 4v6h-6"></path>
+                            <path d="M1 20v-6h6"></path>
+                            <path d="M3.51 9a9 9 0 0 1 14.85-3.36L23 10"></path>
+                            <path d="M20.49 15a9 9 0 0 1-14.85 3.36L1 14"></path>
+                        </svg>
+                        새로고침
+                    </button>
+                </div>
+                <div id="galleryContent" class="online-gallery">
+                    <!-- 갤러리 내용이 여기에 동적으로 로드됩니다 -->
+                    <div class="text-center" style="grid-column: 1 / -1;">
+                        <div class="spinner"></div>
+                        <p>작품을 불러오는 중...</p>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- 작품 상세 정보 모달 -->
+    <div id="artworkDetailModal" class="modal">
+        <div class="modal-content" style="width: 600px; max-width: 90%;">
+            <div class="modal-header">
+                <h3 class="modal-title" id="artworkDetailTitle">작품 상세 정보</h3>
+                <span class="modal-close">&times;</span>
+            </div>
+            <div class="modal-body">
+                <div id="artworkPreview" class="file-preview" style="height: 200px; text-align: center; font-family: monospace;"></div>
+                <div class="form-group">
+                    <label class="form-label">작가</label>
+                    <div id="artworkCreator" class="form-control" style="background: none;"></div>
+                </div>
+                <div class="form-group">
+                    <label class="form-label">업로드 날짜</label>
+                    <div id="artworkDate" class="form-control" style="background: none;"></div>
+                </div>
+                <div class="form-group">
+                    <label class="form-label">조회수</label>
+                    <div id="artworkViews" class="form-control" style="background: none;"></div>
+                </div>
+                <div class="form-group">
+                    <label class="form-label">태그</label>
+                    <div id="artworkTags" class="form-control" style="background: none;"></div>
+                </div>
+                <div class="form-group">
+                    <label class="form-label">설명</label>
+                    <div id="artworkDesc" class="form-control" style="background: none; min-height: 60px;"></div>
+                </div>
+            </div>
+            <div class="modal-footer">
+                <button id="favoriteArtworkBtn" class="btn">
+                    <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                        <path d="M20.84 4.61a5.5 5.5 0 0 0-7.78 0L12 5.67l-1.06-1.06a5.5 5.5 0 0 0-7.78 7.78l1.06 1.06L12 21.23l7.78-7.78 1.06-1.06a5.5 5.5 0 0 0 0-7.78z"></path>
+                    </svg>
+                    즐겨찾기
+                </button>
+                <button id="downloadArtworkBtn" class="btn">다운로드</button>
+                <button id="loadArtworkBtn" class="btn btn-accent">불러오기</button>
+            </div>
+        </div>
+    </div>
+
+    <!-- 도움말 모달 -->
+    <div id="helpModal" class="modal">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h3 class="modal-title valorant-text">VALPAINT 도움말</h3>
+                <span class="modal-close">&times;</span>
+            </div>
+            <div class="modal-body">
+                <h4 style="color: var(--accent-color); margin-bottom: 10px; font-family: var(--valorant-font);">VALPAINT 시작하기</h4>
+                <p style="margin-bottom: 15px;">VALPAINT는 이모지를 활용한 간편한 그림판입니다. 쉽고 재미있게 픽셀 아트를 만들고 온라인으로 공유해보세요!</p>
+
+                <h4 style="color: var(--accent-color); margin-bottom: 10px; font-family: var(--valorant-font);">기본 사용법</h4>
+                <ul style="padding-left: 20px; margin-bottom: 15px;">
+                    <li>캔버스의 셀을 클릭하면 그림을 그릴 수 있어요</li>
+                    <li>그리기/지우기 버튼으로 모드를 전환할 수 있어요</li>
+                    <li>브러시 크기를 조절하여 한 번에 여러 셀을 그릴 수 있어요</li>
+                </ul>
+
+                <h4 style="color: var(--accent-color); margin-bottom: 10px; font-family: var(--valorant-font);">단축키 모음</h4>
+                <ul style="padding-left: 20px; margin-bottom: 15px;">
+                    <li><strong>Q</strong>: 그리기/지우기 모드 전환</li>
+                    <li><strong>+/-</strong>: 브러시 크기 조절</li>
+                    <li><strong>Delete</strong>: 모든 내용 지우기</li>
+                    <li><strong>Ctrl+S</strong>: 작품 저장하기</li>
+                    <li><strong>Ctrl+O</strong>: 작품 불러오기</li>
+                    <li><strong>Ctrl+C</strong>: 작품 복사하기</li>
+                    <li><strong>Ctrl+V</strong>: 작품 붙여넣기</li>
+                </ul>
+
+                <h4 style="color: var(--accent-color); margin-bottom: 10px; font-family: var(--valorant-font);">파일 저장 및 불러오기</h4>
+                <p style="margin-bottom: 10px;"><strong>VAL</strong> 형식으로 작품을 저장하고 불러올 수 있습니다:</p>
+                <ul style="padding-left: 20px; margin-bottom: 15px;">
+                    <li><strong>저장</strong>: 로컬 스토리지에 작품을 저장합니다</li>
+                    <li><strong>불러오기</strong>: 저장된 작품을 불러옵니다</li>
+                    <li><strong>내보내기</strong>: 작품을 VAL 파일로 다운로드합니다</li>
+                    <li><strong>가져오기</strong>: VAL 파일을 업로드하여 가져옵니다</li>
+                </ul>
+
+                <h4 style="color: var(--accent-color); margin-bottom: 10px; font-family: var(--valorant-font);">온라인 공유</h4>
+                <p style="margin-bottom: 10px;">작품을 만들고 온라인으로 공유하면 다른 사람들이 볼 수 있어요!</p>
+                <ul style="padding-left: 20px; margin-bottom: 15px;">
+                    <li>"온라인 공유" 버튼을 클릭하여 작품 정보를 입력하세요</li>
+                    <li>공유된 작품은 "갤러리"에서 확인할 수 있어요</li>
+                    <li>최대 5개까지 작품을 공유할 수 있어요</li>
+                    <li>마음에 드는 작품은 즐겨찾기로 등록해보세요</li>
+                </ul>
+
+                <h4 style="color: var(--accent-color); margin-bottom: 10px; font-family: var(--valorant-font);">설정 옵션</h4>
+                <ul style="padding-left: 20px;">
+                    <li><strong>셀 크기</strong>: 캔버스 셀의 크기를 조절합니다</li>
+                    <li><strong>브러시 크기</strong>: 한 번에 그릴 셀의 수를 조절합니다 (성능 최적화를 위해 작은 값 권장)</li>
+                    <li><strong>이모지 모드 배경</strong>: 배경을 사각형 또는 투명으로 설정합니다</li>
+                    <li><strong>커스텀 이모지</strong>: 그리기에 사용할 이모지를 직접 설정합니다</li>
+                </ul>
+            </div>
+            <div class="modal-footer">
+                <button id="shortcutsBtn" class="btn"><span class="valorant-text">단축키 보기</span></button>
+                <button id="helpCloseBtn" class="btn btn-accent"><span class="valorant-text">확인</span></button>
+            </div>
+        </div>
+    </div>
+
+    <!-- 단축키 모달 -->
+    <div id="shortcutsModal" class="modal">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h3 class="modal-title valorant-text">단축키 목록</h3>
+                <span class="modal-close">&times;</span>
+            </div>
+            <div class="modal-body">
+                <table style="width: 100%; border-collapse: collapse;">
+                    <tr>
+                        <th style="text-align: left; padding: 8px; border-bottom: 1px solid var(--border-color);">기능</th>
+                        <th style="text-align: left; padding: 8px; border-bottom: 1px solid var(--border-color);">단축키</th>
+                    </tr>
+                    <tr>
+                        <td style="padding: 8px; border-bottom: 1px solid var(--border-color);">저장</td>
+                        <td style="padding: 8px; border-bottom: 1px solid var(--border-color);"><span class="shortcut">Ctrl+S</span></td>
+                    </tr>
+                    <tr>
+                        <td style="padding: 8px; border-bottom: 1px solid var(--border-color);">불러오기</td>
+                        <td style="padding: 8px; border-bottom: 1px solid var(--border-color);"><span class="shortcut">Ctrl+O</span></td>
+                    </tr>
+                    <tr>
+                        <td style="padding: 8px; border-bottom: 1px solid var(--border-color);">복사</td>
+                        <td style="padding: 8px; border-bottom: 1px solid var(--border-color);"><span class="shortcut">Ctrl+C</span></td>
+                    </tr>
+                    <tr>
+                        <td style="padding: 8px; border-bottom: 1px solid var(--border-color);">붙여넣기</td>
+                        <td style="padding: 8px; border-bottom: 1px solid var(--border-color);"><span class="shortcut">Ctrl+V</span></td>
+                    </tr>
+                    <tr>
+                        <td style="padding: 8px; border-bottom: 1px solid var(--border-color);">그리기/지우기 전환</td>
+                        <td style="padding: 8px; border-bottom: 1px solid var(--border-color);"><span class="shortcut">Q</span></td>
+                    </tr>
+                    <tr>
+                        <td style="padding: 8px; border-bottom: 1px solid var(--border-color);">브러시 크기 증가</td>
+                        <td style="padding: 8px; border-bottom: 1px solid var(--border-color);"><span class="shortcut">+</span></td>
+                    </tr>
+                    <tr>
+                        <td style="padding: 8px; border-bottom: 1px solid var(--border-color);">브러시 크기 감소</td>
+                        <td style="padding: 8px; border-bottom: 1px solid var(--border-color);"><span class="shortcut">-</span></td>
+                    </tr>
+                    <tr>
+                        <td style="padding: 8px; border-bottom: 1px solid var(--border-color);">전체 지우기</td>
+                        <td style="padding: 8px; border-bottom: 1px solid var(--border-color);"><span class="shortcut">Delete</span></td>
+                    </tr>
+                    <tr>
+                        <td style="padding: 8px; border-bottom: 1px solid var(--border-color);">도움말</td>
+                        <td style="padding: 8px; border-bottom: 1px solid var(--border-color);"><span class="shortcut">F1</span></td>
+                    </tr>
+                    <tr>
+                        <td style="padding: 8px; border-bottom: 1px solid var(--border-color);">설정</td>
+                        <td style="padding: 8px; border-bottom: 1px solid var(--border-color);"><span class="shortcut">F2</span></td>
+                    </tr>
+                    <tr>
+                        <td style="padding: 8px; border-bottom: 1px solid var(--border-color);">내보내기/가져오기</td>
+                        <td style="padding: 8px; border-bottom: 1px solid var(--border-color);"><span class="shortcut">Ctrl+E</span></td>
+                    </tr>
+                </table>
+            </div>
+            <div class="modal-footer">
+                <button id="shortcutsCloseBtn" class="btn btn-accent"><span class="valorant-text">확인</span></button>
+            </div>
+        </div>
+    </div>
+
+    <!-- 토스트 알림 컨테이너 -->
+    <div id="toast-container"></div>
+    <div id="brushCursor" class="brush-cursor"></div>
+
+    <script>
+    // 설정 및 상태 관리
+    const settings = {
+        cellSize: 40,
+        brushSize: 1,
+        bgMode: 'rectangle',
+        emojiRows: 13,
+        emojiCols: 26,
+        customMode: false,
+        filledEmoji: '■',
+        emptyEmoji: '□',
+        transparentChar: 'ㅤ',
+        author: 'ValPaint Team', // 제작자 정보
+        version: '1.1.0'         // 버전 정보
+    };
+
+    // 애플리케이션 상태
+    const appState = {
+        isEraserMode: false,
+        isDragging: false,
+        lastCellPosition: null,
+        clipboardBuffer: null,
+        showBrushCursor: true,
+        currentIP: '',
+        userName: '',
+        lastMousePosition: { x: 0, y: 0 },
+        uploadCount: 0,
+        favorites: [],
+        debounceTimer: null, // 성능 개선을 위한 디바운스 타이머
+    };
+
+    // DOM 요소 참조
+    const elements = {
+        drawingCanvas: document.getElementById('drawingCanvas'),
+        drawEraseBtn: document.getElementById('drawEraseBtn'),
+        clearBtn: document.getElementById('clearBtn'),
+        brushSizeGroup: document.getElementById('brushSizeGroup'),
+        brushSizeDisplay: document.getElementById('brushSizeDisplay'),
+        brushSizeDownBtn: document.getElementById('brushSizeDownBtn'),
+        brushSizeUpBtn: document.getElementById('brushSizeUpBtn'),
+        saveBtn: document.getElementById('saveBtn'),
+        loadBtn: document.getElementById('loadBtn'),
+        copyBtn: document.getElementById('copyBtn'),
+        pasteBtn: document.getElementById('pasteBtn'),
+        shareBtn: document.getElementById('shareBtn'),
+        settingsBtn: document.getElementById('settingsBtn'),
+        helpBtn: document.getElementById('helpBtn'),
+        onlineBtn: document.getElementById('onlineBtn'),
+        exportImportBtn: document.getElementById('exportImportBtn'),
+        
+        // 설정 모달 요소
+        settingsModal: document.getElementById('settingsModal'),
+        cellSizeRange: document.getElementById('cellSizeRange'),
+        cellSizeValue: document.getElementById('cellSizeValue'),
+        brushSizeRange: document.getElementById('brushSizeRange'),
+        brushSizeValue: document.getElementById('brushSizeValue'),
+        bgModeSwitch: document.getElementById('bgModeSwitch'),
+        customModeSwitch: document.getElementById('customModeSwitch'),
+        customEmojiSettings: document.getElementById('customEmojiSettings'),
+        filledEmojiInput: document.getElementById('filledEmojiInput'),
+        emptyEmojiInput: document.getElementById('emptyEmojiInput'),
+        settingsCancelBtn: document.getElementById('settingsCancelBtn'),
+        settingsSaveBtn: document.getElementById('settingsSaveBtn'),
+        
+        // 파일 모달 요소
+        fileModal: document.getElementById('fileModal'),
+        fileModalTitle: document.getElementById('fileModalTitle'),
+        fileNameInput: document.getElementById('fileNameInput'),
+        fileList: document.getElementById('fileList'),
+        filePreview: document.getElementById('filePreview'),
+        saveFormGroup: document.getElementById('saveFormGroup'),
+        fileListGroup: document.getElementById('fileListGroup'),
+        fileModalCancelBtn: document.getElementById('fileModalCancelBtn'),
+        fileDeleteBtn: document.getElementById('fileDeleteBtn'),
+        fileExportBtn: document.getElementById('fileExportBtn'),
+        fileActionBtn: document.getElementById('fileActionBtn'),
+        
+        // 내보내기/가져오기 모달 요소
+        exportImportModal: document.getElementById('exportImportModal'),
+        exportImportTitle: document.getElementById('exportImportTitle'),
+        exportBtn: document.getElementById('exportBtn'),
+        importBtn: document.getElementById('importBtn'),
+        importFileInput: document.getElementById('importFileInput'),
+        exportFileNameGroup: document.getElementById('exportFileNameGroup'),
+        exportFileName: document.getElementById('exportFileName'),
+        exportImportCancelBtn: document.getElementById('exportImportCancelBtn'),
+        executeExportImportBtn: document.getElementById('executeExportImportBtn'),
+        
+        // 공유 모달 요소
+        shareModal: document.getElementById('shareModal'),
+        shareModalCancelBtn: document.getElementById('shareModalCancelBtn'),
+        shareActionBtn: document.getElementById('shareActionBtn'),
+        shareTitleInput: document.getElementById('shareTitleInput'),
+        shareTagsInput: document.getElementById('shareTagsInput'),
+        shareDescInput: document.getElementById('shareDescInput'),
+        sharePreview: document.getElementById('sharePreview'),
+        
+        // 온라인 갤러리 요소
+        onlineModal: document.getElementById('onlineModal'),
+        galleryContent: document.getElementById('galleryContent'),
+        searchInput: document.getElementById('searchInput'),
+        refreshGalleryBtn: document.getElementById('refreshGalleryBtn'),
+        
+        // 작품 상세 정보 모달
+        artworkDetailModal: document.getElementById('artworkDetailModal'),
+        artworkDetailTitle: document.getElementById('artworkDetailTitle'),
+        artworkPreview: document.getElementById('artworkPreview'),
+        artworkCreator: document.getElementById('artworkCreator'),
+        artworkDate: document.getElementById('artworkDate'),
+        artworkViews: document.getElementById('artworkViews'),
+        artworkTags: document.getElementById('artworkTags'),
+        artworkDesc: document.getElementById('artworkDesc'),
+        favoriteArtworkBtn: document.getElementById('favoriteArtworkBtn'),
+        downloadArtworkBtn: document.getElementById('downloadArtworkBtn'),
+        loadArtworkBtn: document.getElementById('loadArtworkBtn'),
+        
+        // 도움말 모달 요소
+        helpModal: document.getElementById('helpModal'),
+        helpCloseBtn: document.getElementById('helpCloseBtn'),
+        shortcutsBtn: document.getElementById('shortcutsBtn'),
+        
+        // 단축키 모달
+        shortcutsModal: document.getElementById('shortcutsModal'),
+        shortcutsCloseBtn: document.getElementById('shortcutsCloseBtn'),
+        
+        // 브러시 커서
+        brushCursor: document.getElementById('brushCursor')
+    };
+
+    // 캔버스 데이터 저장
+    let canvasData = [];
+
+    // 캔버스 렌더러
+    const canvasRenderer = {
+        // 캔버스 초기화
+        initCanvas() {
+            if (!elements.drawingCanvas) return;
+            
+            const canvas = elements.drawingCanvas;
+            canvas.innerHTML = '';
+            canvas.className = 'drawing-canvas';
+            
+            // 초기 데이터 생성
+            if (canvasData.length === 0) {
+                canvasData = Array(settings.emojiRows)
+                    .fill()
+                    .map(() => Array(settings.emojiCols).fill(''));
+            }
+            
+            // 캔버스 생성
+            this.createEmojiCanvas(settings.emojiRows, settings.emojiCols);
+        },
+        
+        // 이모지 모드 캔버스 생성
+        createEmojiCanvas(rows, cols) {
+            const container = document.createElement('div');
+            container.className = 'emoji-container';
+            container.style.display = 'grid';
+            container.style.gridTemplateColumns = `repeat(${cols}, 1fr)`;
+            container.style.gridTemplateRows = `repeat(${rows}, 1fr)`;
+            
+            for (let r = 0; r < rows; r++) {
+                for (let c = 0; c < cols; c++) {
+                    const cell = document.createElement('div');
+                    cell.className = 'emoji-cell';
+                    cell.dataset.row = r;
+                    cell.dataset.col = c;
+                    
+                    // 셀 크기 설정
+                    cell.style.width = `${settings.cellSize}px`;
+                    cell.style.height = `${settings.cellSize}px`;
+                    
+                    // 배경 모드 설정
+                    if (settings.bgMode === 'transparent') {
+                        cell.classList.add('transparent');
+                    }
+                    
+                    // 셀 데이터 설정
+                    if (canvasData[r] && canvasData[r][c] === '■') {
+                        cell.classList.add('active');
+                        cell.textContent = settings.customMode ? settings.filledEmoji : '■';
+                    } else {
+                        const emptyChar = settings.bgMode === 'transparent' 
+                            ? settings.transparentChar 
+                            : (settings.customMode ? settings.emptyEmoji : '□');
+                        cell.textContent = emptyChar;
+                    }
+                    
+                    // 이벤트 핸들러 등록
+                    cell.addEventListener('mousedown', this.handleCellMouseDown.bind(this));
+                    cell.addEventListener('mouseover', this.handleCellMouseOver.bind(this));
+                    
+                    container.appendChild(cell);
+                }
+            }
+            
+            elements.drawingCanvas.appendChild(container);
+        },
+        
+        // 브러시 크기에 따른 주변 셀 계산 최적화 함수
+        getBrushCells(centerRow, centerCol, brushSize) {
+            const radius = Math.floor(brushSize / 2);
+            const cells = [];
+            
+            // 브러시 크기가 1인 경우 중앙 셀만 반환
+            if (brushSize === 1) {
+                return [{row: centerRow, col: centerCol}];
+            }
+            
+            // 브러시 크기가 2 이상인 경우 주변 셀 계산
+            for (let r = -radius; r <= radius; r++) {
+                for (let c = -radius; c <= radius; c++) {
+                    const targetRow = centerRow + r;
+                    const targetCol = centerCol + c;
+                    
+                    // 유효한 범위 체크
+                    if (targetRow >= 0 && targetRow < settings.emojiRows &&
+                        targetCol >= 0 && targetCol < settings.emojiCols) {
+                        
+                        // 거리 기반 처리
+                        const distance = Math.sqrt(r * r + c * c);
+                        if (distance <= radius) {
+                            cells.push({row: targetRow, col: targetCol});
+                        }
+                    }
+                }
+            }
+            
+            return cells;
+        },
+        
+        // 셀 마우스 다운 핸들러
+        handleCellMouseDown(event) {
+            event.preventDefault();
+            appState.isDragging = true;
+            
+            const cell = event.target;
+            const row = parseInt(cell.dataset.row);
+            const col = parseInt(cell.dataset.col);
+            
+            // 셀 위치 기억
+            appState.lastCellPosition = { row, col };
+            
+            // 브러시 크기에 따른 셀 처리
+            const cells = this.getBrushCells(row, col, settings.brushSize);
+            
+            // 모든 셀 처리
+            cells.forEach(({row, col}) => {
+                const targetCell = document.querySelector(`.emoji-cell[data-row="${row}"][data-col="${col}"]`);
+                if (targetCell) {
+                    if (appState.isEraserMode) {
+                        // 지우기 모드
+                        targetCell.classList.remove('active');
+                        canvasData[row][col] = '';
+                        
+                        const emptyChar = settings.bgMode === 'transparent' 
+                            ? settings.transparentChar 
+                            : (settings.customMode ? settings.emptyEmoji : '□');
+                        targetCell.textContent = emptyChar;
+                    } else {
+                        // 그리기 모드
+                        targetCell.classList.add('active');
+                        canvasData[row][col] = '■';
+                        targetCell.textContent = settings.customMode ? settings.filledEmoji : '■';
+                    }
+                }
+            });
+        },
+        
+        // 셀 마우스 오버 핸들러 (드래그)
+        handleCellMouseOver(event) {
+            if (!appState.isDragging) return;
+            
+            const cell = event.target;
+            const row = parseInt(cell.dataset.row);
+            const col = parseInt(cell.dataset.col);
+            
+            // 이전에 처리한 셀과 같으면 스킵
+            if (appState.lastCellPosition && 
+                appState.lastCellPosition.row === row && 
+                appState.lastCellPosition.col === col) {
+                return;
+            }
+            
+            // 셀 위치 기억
+            appState.lastCellPosition = { row, col };
+            
+            // 디바운스 적용 (성능 최적화)
+            if (appState.debounceTimer) {
+                clearTimeout(appState.debounceTimer);
+            }
+            
+            appState.debounceTimer = setTimeout(() => {
+                // 브러시 크기에 따른 셀 처리
+                const cells = this.getBrushCells(row, col, settings.brushSize);
+                
+                // 모든 셀 처리
+                cells.forEach(({row, col}) => {
+                    const targetCell = document.querySelector(`.emoji-cell[data-row="${row}"][data-col="${col}"]`);
+                    if (targetCell) {
+                        if (appState.isEraserMode) {
+                            // 지우기 모드
+                            targetCell.classList.remove('active');
+                            canvasData[row][col] = '';
+                            
+                            const emptyChar = settings.bgMode === 'transparent' 
+                                ? settings.transparentChar 
+                                : (settings.customMode ? settings.emptyEmoji : '□');
+                            targetCell.textContent = emptyChar;
+                        } else {
+                            // 그리기 모드
+                            targetCell.classList.add('active');
+                            canvasData[row][col] = '■';
+                            targetCell.textContent = settings.customMode ? settings.filledEmoji : '■';
+                        }
+                    }
+                });
+            }, 5); // 5ms 디바운스 (성능 개선)
+        },
+        
+        // 캔버스 전체 지우기
+        clearCanvas() {
+            // 이모지 모드 초기화
+            canvasData = Array(settings.emojiRows)
+                .fill()
+                .map(() => Array(settings.emojiCols).fill(''));
+            
+            // 캔버스 다시 그리기
+            this.initCanvas();
+            
+            utils.showToast('캔버스를 초기화했습니다', 'info');
+        },
+        
+        // 캔버스 데이터 내보내기
+        exportCanvasData() {
+            const data = {
+                settings: { ...settings },
+                board: JSON.parse(JSON.stringify(canvasData))
+            };
+            
+            return data;
+        },
+        
+        // 캔버스 데이터 가져오기
+        importCanvasData(data) {
+            if (!data || !data.board) {
+                utils.showToast('유효하지 않은 데이터입니다', 'error');
+                return false;
+            }
+            
+            try {
+                // 설정 복원
+                if (data.settings) {
+                    // 고정 해상도를 유지하기 위해 행과 열은 무시
+                    const { emojiRows, emojiCols, ...restSettings } = data.settings;
+                    Object.assign(settings, restSettings);
+                }
+                
+                // 데이터 복원 (행/열 설정 유지)
+                const newData = Array(settings.emojiRows)
+                    .fill()
+                    .map(() => Array(settings.emojiCols).fill(''));
+                
+                // 데이터 복사
+                const rows = Math.min(data.board.length, settings.emojiRows);
+                const cols = data.board[0] ? Math.min(data.board[0].length, settings.emojiCols) : 0;
+                
+                for (let r = 0; r < rows; r++) {
+                    for (let c = 0; c < cols; c++) {
+                        if (data.board[r] && data.board[r][c] !== undefined) {
+                            newData[r][c] = data.board[r][c];
+                        }
+                    }
+                }
+                
+                canvasData = newData;
+                
+                // UI 업데이트
+                this.initCanvas();
+                
+                return true;
+            } catch (error) {
+                console.error('데이터 가져오기 오류:', error);
+                utils.showToast('데이터 가져오기에 실패했습니다', 'error');
+                return false;
+            }
+        },
+        
+        // 현재 캔버스를 미리보기 이미지로 변환
+        generatePreview() {
+            let previewHtml = '<div style="font-family: monospace; line-height: 1; font-size: 14px; white-space: pre;">';
+            
+            for (let r = 0; r < canvasData.length; r++) {
+                let rowText = '';
+                for (let c = 0; c < canvasData[r].length; c++) {
+                    if (canvasData[r][c] === '■') {
+                        rowText += settings.customMode ? settings.filledEmoji : '■';
+                    } else {
+                        const emptyChar = settings.bgMode === 'transparent' 
+                            ? settings.transparentChar 
+                            : (settings.customMode ? settings.emptyEmoji : '□');
+                        rowText += emptyChar;
+                    }
+                }
+                previewHtml += rowText + '\n';
+            }
+            
+            previewHtml += '</div>';
+            return previewHtml;
+        }
+    };
+
+    // 브러시 크기 변경 기능
+    function decreaseBrushSize() {
+        if (settings.brushSize > 1) {
+            updateBrushSize(settings.brushSize - 1);
+        }
+    }
+
+    function increaseBrushSize() {
+        if (settings.brushSize < 3) { // 성능 최적화를 위해 최대 크기 3으로 제한
+            updateBrushSize(settings.brushSize + 1);
+        }
+    }
+
+    // 그리기/지우기 모드 토글
+    function toggleEraserMode() {
+        appState.isEraserMode = !appState.isEraserMode;
+        
+        if (appState.isEraserMode) {
+            elements.drawEraseBtn.innerHTML = `
+                <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                    <path d="M20 5H9l-7 7 7 7h11a2 2 0 0 0 2-2V7a2 2 0 0 0-2-2z"></path>
+                    <line x1="18" y1="9" x2="12" y2="15"></line>
+                    <line x1="12" y1="9" x2="18" y2="15"></line>
+                </svg>
+                <span class="valorant-text">지우기</span>
+                <span class="tooltip-text">단축키: Q</span>
+            `;
+            utils.showToast('지우기 모드로 전환했습니다', 'info');
+        } else {
+            elements.drawEraseBtn.innerHTML = `
+                <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                    <path d="M12 19l7-7 3 3-7 7-3-3z"></path>
+                    <path d="M18 13l-1.5-7.5L2 2l3.5 14.5L13 18l5-5z"></path>
+                    <path d="M2 2l7.586 7.586"></path>
+                    <circle cx="11" cy="11" r="2"></circle>
+                </svg>
+                <span class="valorant-text">그리기</span>
+                <span class="tooltip-text">단축키: Q</span>
+            `;
+            utils.showToast('그리기 모드로 전환했습니다', 'info');
+        }
+        
+        // 브러시 커서 업데이트
+        if (appState.lastMousePosition) {
+            const event = {
+                pageX: appState.lastMousePosition.x,
+                pageY: appState.lastMousePosition.y
+            };
+            updateBrushCursor(event);
+        }
+    }
+
+    // 설정 UI 업데이트
+    function updateSettingsUI() {
+        elements.cellSizeRange.value = settings.cellSize;
+        elements.cellSizeValue.textContent = `${settings.cellSize}px`;
+        
+        elements.brushSizeRange.value = settings.brushSize;
+        elements.brushSizeValue.textContent = settings.brushSize;
+        elements.brushSizeDisplay.textContent = settings.brushSize;
+        
+        elements.bgModeSwitch.checked = settings.bgMode === 'transparent';
+        elements.customModeSwitch.checked = settings.customMode;
+        
+        // 커스텀 이모지 설정 UI 업데이트
+        elements.customEmojiSettings.style.display = settings.customMode ? 'block' : 'none';
+        
+        if (settings.customMode) {
+            elements.filledEmojiInput.value = settings.filledEmoji;
+            elements.emptyEmojiInput.value = settings.emptyEmoji;
+            
+            // 커스텀 모드가 켜져 있으면 배경 투명 모드 비활성화
+            elements.bgModeSwitch.checked = false;
+            elements.bgModeSwitch.disabled = true;
+            settings.bgMode = 'rectangle';
+        } else {
+            elements.bgModeSwitch.disabled = false;
+        }
+    }
+
+    // 파일 저장 다이얼로그
+    function openSaveDialog() {
+        elements.fileModalTitle.textContent = '파일 저장';
+        elements.fileActionBtn.textContent = '저장';
+        elements.saveFormGroup.style.display = 'block';
+        elements.fileListGroup.style.display = 'none';
+        elements.fileDeleteBtn.style.display = 'none';
+        elements.fileExportBtn.style.display = 'none';
+        
+        elements.fileNameInput.value = '';
+        
+        // 파일 목록 로드
+        loadFileList(false);
+        
+        utils.showModal(elements.fileModal);
+    }
+
+    // 파일 불러오기 다이얼로그
+    function openLoadDialog() {
+        elements.fileModalTitle.textContent = '파일 불러오기';
+        elements.fileActionBtn.textContent = '불러오기';
+        elements.saveFormGroup.style.display = 'none';
+        elements.fileListGroup.style.display = 'block';
+        elements.fileDeleteBtn.style.display = 'inline-block';
+        elements.fileExportBtn.style.display = 'inline-block';
+        
+        // 파일 목록 로드
+        loadFileList(true);
+        
+        utils.showModal(elements.fileModal);
+    }
+    
+    // 내보내기/가져오기 다이얼로그
+    function openExportImportDialog() {
+        // UI 초기화
+        elements.exportImportTitle.textContent = '파일 내보내기/가져오기';
+        elements.importFileInput.style.display = 'none';
+        elements.exportFileNameGroup.style.display = 'none';
+        elements.executeExportImportBtn.style.display = 'none';
+        
+        // 파일 작성자 정보 표시
+        document.getElementById('fileAuthorText').textContent = settings.author;
+        document.getElementById('fileVersionText').textContent = settings.version;
+        
+        utils.showModal(elements.exportImportModal);
+    }
+
+    // 파일 목록 로드
+    function loadFileList(showPreview) {
+        const fileList = elements.fileList;
+        fileList.innerHTML = '';
+        
+        const files = utils.storage.getFileList();
+        
+        if (files.length === 0) {
+            const emptyElement = document.createElement('div');
+            emptyElement.className = 'file-item';
+            emptyElement.textContent = '저장된 파일이 없습니다';
+            fileList.appendChild(emptyElement);
+            
+            // 불러오기 버튼 비활성화
+            if (showPreview) {
+                elements.fileActionBtn.disabled = true;
+                elements.fileDeleteBtn.disabled = true;
+                elements.fileExportBtn.disabled = true;
+            }
+            
+            // 미리보기 초기화
+            elements.filePreview.innerHTML = '';
+            
+            return;
+        }
+        
+        // 불러오기 버튼 활성화
+        if (showPreview) {
+            elements.fileActionBtn.disabled = false;
+            elements.fileDeleteBtn.disabled = true;  // 파일 선택 전에는 비활성화
+            elements.fileExportBtn.disabled = true;  // 파일 선택 전에는 비활성화
+        }
+        
+        // 파일 목록 생성
+        files.forEach(fileName => {
+            // VAL 파일만 표시
+            if (fileName.endsWith('.val')) {
+                const fileItem = document.createElement('div');
+                fileItem.className = 'file-item';
+                fileItem.dataset.fileName = fileName;
+                
+                // 파일명 표시 (확장자 제외)
+                const fileNameSpan = document.createElement('span');
+                fileNameSpan.textContent = fileName.replace(/\.val$/, '');
+                fileItem.appendChild(fileNameSpan);
+                
+                fileItem.addEventListener('click', function() {
+                    // 선택 스타일 적용
+                    const items = fileList.querySelectorAll('.file-item');
+                    items.forEach(item => item.classList.remove('selected'));
+                    fileItem.classList.add('selected');
+                    
+                    // 미리보기 표시 (불러오기 모드일 때만)
+                    if (showPreview) {
+                        const fileData = utils.storage.loadFile(fileName);
+                        if (fileData) {
+                            showFilePreview(fileData);
+                            elements.fileDeleteBtn.disabled = false;  // 파일 선택 시 삭제 버튼 활성화
+                            elements.fileExportBtn.disabled = false;  // 파일 선택 시 내보내기 버튼 활성화
+                            elements.fileActionBtn.disabled = false;  // 파일 선택 시 불러오기 버튼 활성화
+                        }
+                    }
+                });
+                
+                fileList.appendChild(fileItem);
+            }
+        });
+        
+        // 표시할 파일이 없는 경우
+        if (fileList.children.length === 0) {
+            const emptyElement = document.createElement('div');
+            emptyElement.className = 'file-item';
+            emptyElement.textContent = '저장된 파일이 없습니다';
+            fileList.appendChild(emptyElement);
+            
+            // 불러오기 버튼 비활성화
+            if (showPreview) {
+                elements.fileActionBtn.disabled = true;
+                elements.fileDeleteBtn.disabled = true;
+                elements.fileExportBtn.disabled = true;
+            }
+        }
+    }
+
+    // 파일 미리보기 표시
+    function showFilePreview(data) {
+        const preview = elements.filePreview;
+        preview.innerHTML = '';
+        
+        // 이모지 미리보기
+        const previewDiv = document.createElement('div');
+        previewDiv.style.fontFamily = 'monospace';
+        previewDiv.style.lineHeight = '1';
+        previewDiv.style.whiteSpace = 'pre';
+        
+        try {
+            let previewContent = '';
+            if (data.board && Array.isArray(data.board)) {
+                for (let r = 0; r < data.board.length; r++) {
+                    let rowText = '';
+                    for (let c = 0; c < data.board[r].length; c++) {
+                        if (data.board[r][c] === '■') {
+                            rowText += data.settings && data.settings.customMode ? 
+                                data.settings.filledEmoji : '■';
+                        } else {
+                            const emptyChar = data.settings && data.settings.bgMode === 'transparent' ? 
+                                settings.transparentChar : 
+                                (data.settings && data.settings.customMode ? data.settings.emptyEmoji : '□');
+                            rowText += emptyChar;
+                        }
+                    }
+                    previewContent += rowText + '\n';
+                }
+                
+                previewDiv.textContent = previewContent;
+                preview.appendChild(previewDiv);
+            } else {
+                preview.textContent = '미리보기를 표시할 수 없습니다';
+            }
+        } catch (error) {
+            console.error('미리보기 생성 오류:', error);
+            preview.textContent = '미리보기 생성 중 오류가 발생했습니다';
+        }
+    }
+
+    // 파일 저장 실행
+    function saveFile() {
+        const fileName = utils.sanitizeFileName(elements.fileNameInput.value);
+        
+        if (!fileName) {
+            utils.showToast('파일 이름을 입력해주세요', 'error');
+            return;
+        }
+        
+        // 파일 데이터 준비
+        const data = canvasRenderer.exportCanvasData();
+        
+        // 작성자 정보 추가
+        data.author = settings.author;
+        data.version = settings.version;
+        data.timestamp = new Date().toISOString();
+        
+        // 파일 확장자 추가
+        const fullFileName = `${fileName}.val`;
+        
+        // 저장
+        if (utils.storage.saveFile(fullFileName, data)) {
+            utils.showToast(`${fileName}.val 파일이 저장되었습니다`, 'success');
+            utils.hideModal(elements.fileModal);
+        }
+    }
+
+    // 파일 불러오기 실행
+    function loadFile() {
+        // 선택된 파일 확인
+        const selectedItem = elements.fileList.querySelector('.file-item.selected');
+        if (!selectedItem) {
+            utils.showToast('불러올 파일을 선택해주세요', 'error');
+            return;
+        }
+        
+        const fileName = selectedItem.dataset.fileName;
+        const data = utils.storage.loadFile(fileName);
+        
+        if (data) {
+            if (canvasRenderer.importCanvasData(data)) {
+                utils.showToast(`${fileName} 파일을 불러왔습니다`, 'success');
+                utils.hideModal(elements.fileModal);
+            }
+        }
+    }
+
+    // 파일 삭제 실행
+    function deleteFile() {
+        // 선택된 파일 확인
+        const selectedItem = elements.fileList.querySelector('.file-item.selected');
+        if (!selectedItem) {
+            utils.showToast('삭제할 파일을 선택해주세요', 'error');
+            return;
+        }
+        
+        const fileName = selectedItem.dataset.fileName;
+        
+        // 확인 메시지
+        if (confirm(`'${fileName}' 파일을 삭제하시겠습니까?`)) {
+            if (utils.storage.deleteFile(fileName)) {
+                // 파일 목록 다시 로드
+                loadFileList(true);
+                utils.showToast(`${fileName} 파일이 삭제되었습니다`, 'success');
+            }
+        }
+    }
+    
+    // 파일 내보내기 실행
+    function exportFile() {
+        const filename = elements.exportFileName.value.trim();
+        
+        if (!filename) {
+            utils.showToast('내보낼 파일 이름을 입력해주세요', 'error');
+            return;
+        }
+        
+        // 현재 캔버스 데이터 가져오기
+        const data = canvasRenderer.exportCanvasData();
+        
+        // 작성자 정보 추가
+        data.author = settings.author || api.getUsername();
+        data.version = settings.version;
+        data.timestamp = new Date().toISOString();
+        
+        try {
+            // JSON 데이터를 Blob으로 변환
+            const jsonData = JSON.stringify(data, null, 2);
+            const blob = new Blob([jsonData], { type: 'application/json' });
+            const url = URL.createObjectURL(blob);
+            
+            // 다운로드 링크 생성 및 클릭
+            const a = document.createElement('a');
+            a.href = url;
+            a.download = `${filename}.val`;
+            document.body.appendChild(a);
+            a.click();
+            document.body.removeChild(a);
+            
+            // URL 객체 해제
+            URL.revokeObjectURL(url);
+            
+            utils.showToast(`${filename}.val 파일이 다운로드되었습니다`, 'success');
+            utils.hideModal(elements.exportImportModal);
+        } catch (error) {
+            console.error('파일 내보내기 오류:', error);
+            utils.showToast('파일 내보내기 중 오류가 발생했습니다', 'error');
+        }
+    }
+    
+    // 선택된 파일 내보내기
+    function exportSelectedFile() {
+        // 선택된 파일 확인
+        const selectedItem = elements.fileList.querySelector('.file-item.selected');
+        if (!selectedItem) {
+            utils.showToast('내보낼 파일을 선택해주세요', 'error');
+            return;
+        }
+        
+        const fileName = selectedItem.dataset.fileName;
+        const data = utils.storage.loadFile(fileName);
+        
+        if (data) {
+            try {
+                // 작성자 정보 확인
+                if (!data.author) {
+                    data.author = settings.author;
+                }
+                if (!data.version) {
+                    data.version = settings.version;
+                }
+                if (!data.timestamp) {
+                    data.timestamp = new Date().toISOString();
+                }
+                
+                // JSON 데이터를 Blob으로 변환
+                const jsonData = JSON.stringify(data, null, 2);
+                const blob = new Blob([jsonData], { type: 'application/json' });
+                const url = URL.createObjectURL(blob);
+                
+                // 다운로드 링크 생성 및 클릭
+                const a = document.createElement('a');
+                a.href = url;
+                a.download = fileName;
+                document.body.appendChild(a);
+                a.click();
+                document.body.removeChild(a);
+                
+                // URL 객체 해제
+                URL.revokeObjectURL(url);
+                
+                utils.showToast(`${fileName} 파일이 다운로드되었습니다`, 'success');
+            } catch (error) {
+                console.error('파일 내보내기 오류:', error);
+                utils.showToast('파일 내보내기 중 오류가 발생했습니다', 'error');
+            }
+        }
+    }
+    
+    // 파일 가져오기 실행
+    function importFile() {
+        const fileInput = document.getElementById('fileInput');
+        const file = fileInput.files[0];
+        
+        if (!file) {
+            utils.showToast('가져올 파일을 선택해주세요', 'error');
+            return;
+        }
+        
+        // .val 확장자 체크
+        if (!file.name.toLowerCase().endsWith('.val')) {
+            utils.showToast('VAL 형식의 파일만 가져올 수 있습니다', 'error');
+            return;
+        }
+        
+        const reader = new FileReader();
+        
+        reader.onload = function(e) {
+            try {
+                const data = JSON.parse(e.target.result);
+                
+                // 유효한 VAL 파일인지 확인
+                if (!data.board || !data.settings) {
+                    utils.showToast('유효하지 않은 VAL 파일입니다', 'error');
+                    return;
+                }
+                
+                // 캔버스에 불러오기
+                if (canvasRenderer.importCanvasData(data)) {
+                    utils.showToast(`${file.name} 파일을 불러왔습니다`, 'success');
+                    utils.hideModal(elements.exportImportModal);
+                    
+                    // 파일 이름으로 저장 (확장자 제외)
+                    const baseName = file.name.replace(/\.val$/i, '');
+                    elements.fileNameInput.value = baseName;
+                } else {
+                    utils.showToast('파일을 불러오는 데 실패했습니다', 'error');
+                }
+            } catch (error) {
+                console.error('파일 가져오기 오류:', error);
+                utils.showToast('파일 가져오기 중 오류가 발생했습니다. 파일이 손상되었거나 유효하지 않은 형식입니다.', 'error');
+            }
+        };
+        
+        reader.onerror = function() {
+            utils.showToast('파일을 읽는 중 오류가 발생했습니다', 'error');
+        };
+        
+        reader.readAsText(file);
+    }
+
+    // 복사 기능
+    function copyCanvas() {
+        try {
+            // 현재 캔버스 데이터 가져오기
+            const data = canvasRenderer.exportCanvasData();
+            
+            // 클립보드 버퍼에 저장
+            appState.clipboardBuffer = JSON.stringify(data);
+            
+            // 시스템 클립보드에 복사 시도
+            // 이모지 모드: 텍스트 형태로 복사
+            const emojiText = data.board.map(row => 
+                row.map(cell => {
+                    if (cell === '■') return settings.customMode ? settings.filledEmoji : '■';
+                    return settings.bgMode === 'transparent' ? settings.transparentChar : (settings.customMode ? settings.emptyEmoji : '□');
+                }).join('')
+            ).join('\n');
+            
+            try {
+                navigator.clipboard.writeText(emojiText).then(() => {
+                    utils.showToast('이모지 데이터가 클립보드에 복사되었습니다', 'success');
+                }).catch(err => {
+                    console.error('클립보드 복사 오류:', err);
+                    utils.showToast('클립보드 접근 권한이 없습니다', 'error');
+                });
+            } catch (err) {
+                console.error('클립보드 API 사용 불가:', err);
+                // 폴백: 텍스트 영역 사용
+                const textArea = document.createElement('textarea');
+                textArea.value = emojiText;
+                document.body.appendChild(textArea);
+                textArea.select();
+                document.execCommand('copy');
+                document.body.removeChild(textArea);
+                utils.showToast('이모지 데이터가 클립보드에 복사되었습니다', 'success');
+            }
+        } catch (err) {
+            console.error('복사 오류:', err);
+            utils.showToast('복사 중 오류가 발생했습니다', 'error');
+        }
+    }
+
+    // 붙여넣기 기능
+    function pasteCanvas() {
+        try {
+            // 클립보드 API 사용 시도
+            navigator.clipboard.readText().then(text => {
+                processClipboardText(text);
+            }).catch(err => {
+                console.error('클립보드 접근 오류:', err);
+                utils.showToast('클립보드 접근 권한이 없습니다', 'error');
+                
+                // 내부 클립보드 버퍼 사용 시도
+                if (appState.clipboardBuffer) {
+                    try {
+                        const data = JSON.parse(appState.clipboardBuffer);
+                        if (canvasRenderer.importCanvasData(data)) {
+                            utils.showToast('내부 클립보드 데이터를 붙여넣었습니다', 'success');
+                        }
+                    } catch (e) {
+                        console.error('내부 버퍼 파싱 오류:', e);
+                        utils.showToast('클립보드 데이터 처리 중 오류가 발생했습니다', 'error');
+                    }
+                }
+            });
+        } catch (err) {
+            console.error('붙여넣기 오류:', err);
+            utils.showToast('붙여넣기 중 오류가 발생했습니다', 'error');
+        }
+    }
+
+    // 클립보드 텍스트 처리
+    function processClipboardText(text) {
+        if (!text || text.trim() === '') {
+            utils.showToast('클립보드에 텍스트가 없습니다', 'error');
+            return;
+        }
+        
+        // JSON 데이터인지 확인
+        try {
+            const data = JSON.parse(text);
+            if (data.board) {
+                if (canvasRenderer.importCanvasData(data)) {
+                    utils.showToast('클립보드 데이터를 붙여넣었습니다', 'success');
+                    return;
+                }
+            }
+        } catch (e) {
+            // JSON이 아니면 계속 진행
+        }
+        
+        // 일반 텍스트 처리
+        const lines = text.trim().split('\n');
+        const rows = lines.length;
+        const cols = Math.max(...lines.map(line => line.length));
+        
+        // 데이터가 현재 캔버스 크기를 초과하는지 확인
+        if (rows > settings.emojiRows || cols > settings.emojiCols) {
+            utils.showToast(`텍스트가 캔버스 크기(${settings.emojiRows}x${settings.emojiCols})를 초과합니다`, 'error');
+            return;
+        }
+        
+        // 빈 데이터 생성
+        const newData = Array(settings.emojiRows).fill().map(() => Array(settings.emojiCols).fill(''));
+        
+        // 텍스트를 이모지 데이터로 변환
+        for (let r = 0; r < rows; r++) {
+            const line = lines[r];
+            for (let c = 0; c < line.length; c++) {
+                const char = line[c];
+                if (char === '■' || char === settings.filledEmoji) {
+                    newData[r][c] = '■';
+                }
+            }
+        }
+        
+        // 데이터 업데이트
+        canvasData = newData;
+        
+        // 캔버스 다시 그리기
+        canvasRenderer.initCanvas();
+        utils.showToast('텍스트를 붙여넣었습니다', 'success');
+    }
+
+    // 설정 변경 적용
+    function applySettings() {
+        // 이전 설정 백업
+        const oldSettings = { ...settings };
+        
+        // 새 설정 가져오기
+        settings.cellSize = parseInt(elements.cellSizeRange.value);
+        settings.brushSize = parseInt(elements.brushSizeRange.value);
+        settings.bgMode = elements.bgModeSwitch.checked ? 'transparent' : 'rectangle';
+        settings.customMode = elements.customModeSwitch.checked;
+        
+        if (settings.customMode) {
+            const filledEmoji = elements.filledEmojiInput.value;
+            const emptyEmoji = elements.emptyEmojiInput.value;
+            
+            if (filledEmoji && emptyEmoji) {
+                settings.filledEmoji = filledEmoji;
+                settings.emptyEmoji = emptyEmoji;
+            }
+            
+            // 커스텀 모드일 때는 배경 투명 모드 끄기
+            settings.bgMode = 'rectangle';
+        } else {
+            settings.filledEmoji = '■';
+            settings.emptyEmoji = '□';
+        }
+        
+        // 설정이 변경되었으면 캔버스 다시 그리기
+        if (
+            oldSettings.cellSize !== settings.cellSize ||
+            oldSettings.bgMode !== settings.bgMode ||
+            oldSettings.customMode !== settings.customMode ||
+            oldSettings.filledEmoji !== settings.filledEmoji ||
+            oldSettings.emptyEmoji !== settings.emptyEmoji
+        ) {
+            canvasRenderer.initCanvas();
+        } else if (oldSettings.brushSize !== settings.brushSize) {
+            // 브러시 크기만 변경됐을 경우 DOM 요소 업데이트
+            elements.brushSizeDisplay.textContent = settings.brushSize;
+            
+            // 브러시 커서 업데이트
+            if (appState.lastMousePosition) {
+                const event = {
+                    pageX: appState.lastMousePosition.x,
+                    pageY: appState.lastMousePosition.y
+                };
+                updateBrushCursor(event);
+            }
+        }
+        
+        // UI 요소 업데이트
+        elements.brushSizeDisplay.textContent = settings.brushSize;
+        
+        utils.hideModal(elements.settingsModal);
+        utils.showToast('설정이 저장되었습니다', 'success');
+    }
+
+    // 브러시 커서 업데이트
+    function updateBrushCursor(event) {
+        if (!appState.showBrushCursor || !elements.brushCursor) return;
+        
+        const cursor = elements.brushCursor;
+        const size = Math.max(10, settings.brushSize * 10);
+        
+        cursor.style.width = `${size}px`;
+        cursor.style.height = `${size}px`;
+        cursor.style.left = `${event.pageX}px`;
+        cursor.style.top = `${event.pageY}px`;
+        
+        // 지우기 모드면 스타일 변경
+        if (appState.isEraserMode) {
+            cursor.style.border = '2px dashed var(--accent-color)';
+            cursor.style.backgroundColor = 'rgba(255, 70, 85, 0.1)';
+        } else {
+            cursor.style.border = '2px solid var(--accent-color)';
+            cursor.style.backgroundColor = 'rgba(255, 70, 85, 0.2)';
+        }
+        
+        // 마우스 위치 저장
+        appState.lastMousePosition = { x: event.pageX, y: event.pageY };
+    }
+
+    // 온라인 공유 모달
+    function openShareModal() {
+        // 미리보기 표시
+        elements.sharePreview.innerHTML = canvasRenderer.generatePreview();
+        
+        // 입력 필드 초기화
+        elements.shareTitleInput.value = '';
+        elements.shareTagsInput.value = '';
+        elements.shareDescInput.value = '';
+        
+        // 간단한 오프라인 모드로 동작
+        utils.showModal(elements.shareModal);
+    }
+
+    // 작품 공유하기 (오프라인 모드에서는 파일로 내보내기)
+    function shareArtwork() {
+        const title = elements.shareTitleInput.value.trim();
+        if (!title) {
+            utils.showToast('작품 제목을 입력해주세요', 'error');
+            return;
+        }
+        
+        // 공유 데이터 준비
+        const data = canvasRenderer.exportCanvasData();
+        const username = appState.userName || 'Guest'; // 저장된 사용자 이름 가져오기
+        const tags = elements.shareTagsInput.value.trim().split(',').map(tag => tag.trim()).filter(tag => tag);
+        const description = elements.shareDescInput.value.trim();
+        
+        // 추가 정보 넣기
+        data.author = settings.author;
+        data.creator = username;
+        data.title = title;
+        data.tags = tags;
+        data.description = description;
+        data.timestamp = new Date().toISOString();
+        data.version = settings.version;
+        
+        // 스피너 표시
+        elements.shareActionBtn.innerHTML = '<span class="spinner" style="width: 16px; height: 16px;"></span> 내보내기 중...';
+        elements.shareActionBtn.disabled = true;
+        
+        try {
+            // 오프라인 모드에서는 파일로 내보내기
+            const jsonData = JSON.stringify(data, null, 2);
+            const blob = new Blob([jsonData], { type: 'application/json' });
+            const url = URL.createObjectURL(blob);
+            
+            // 다운로드 링크 생성 및 클릭
+            const a = document.createElement('a');
+            a.href = url;
+            a.download = `${title}.val`;
+            document.body.appendChild(a);
+            a.click();
+            document.body.removeChild(a);
+            
+            // URL 객체 해제
+            URL.revokeObjectURL(url);
+            
+            utils.showToast(`${title}.val 파일로 작품이 내보내졌습니다`, 'success');
+            utils.hideModal(elements.shareModal);
+            
+            // 로컬 스토리지에도 저장
+            utils.storage.saveFile(`${title}.val`, data);
+            
+        } catch (error) {
+            console.error('작품 공유 오류:', error);
+            utils.showToast('작품 공유 중 오류가 발생했습니다', 'error');
+        } finally {
+            // 공유 모달 버튼 스타일
+            elements.shareActionBtn.innerHTML = '<span class="valorant-text">공유하기</span>';
+            elements.shareModalCancelBtn.innerHTML = '<span class="valorant-text">취소</span>';
+            elements.shareActionBtn.disabled = false;
+        }
+    }
+
+    // 온라인 갤러리 열기
+    function openOnlineGallery() {
+        // 갤러리 컨텐츠 초기화
+        elements.galleryContent.innerHTML = `
+            <div class="text-center" style="grid-column: 1 / -1;">
+                <div class="spinner"></div>
+                <p>작품을 불러오는 중...</p>
+            </div>
+        `;
+        
+        utils.showModal(elements.onlineModal);
+        
+        // 작품 불러오기
+        loadGalleryItems('my');
+    }
+
+    // 갤러리 작품 불러오기
+    function loadGalleryItems(tab) {
+        // 탭 스타일 업데이트
+        document.querySelectorAll('.online-tab').forEach(tabEl => {
+            if (tabEl.dataset.tab === tab) {
+                tabEl.classList.add('active');
+            } else {
+                tabEl.classList.remove('active');
+            }
+        });
+        
+        // 스피너 표시
+        elements.galleryContent.innerHTML = `
+            <div class="text-center" style="grid-column: 1 / -1;">
+                <div class="spinner"></div>
+                <p>작품을 불러오는 중...</p>
+            </div>
+        `;
+        
+        // 검색어 가져오기
+        const searchQuery = elements.searchInput.value.trim();
+        
+        // API 호출
+        let apiPromise;
+        
+        switch (tab) {
+            case 'favorites':
+                apiPromise = api.getFavoriteArtworks(searchQuery);
+                break;
+            case 'public':
+                apiPromise = api.getPublicArtworks(searchQuery);
+                break;
+            case 'my':
+            default:
+                apiPromise = api.getUserArtworks(searchQuery);
+                break;
+        }
+        
+        apiPromise.then(artworks => {
+            renderGalleryItems(artworks, tab);
+        }).catch(error => {
+            console.error('갤러리 불러오기 오류:', error);
+            elements.galleryContent.innerHTML = `
+                <div class="empty-state" style="grid-column: 1 / -1;">
+                    <svg xmlns="http://www.w3.org/2000/svg" width="48" height="48" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                        <circle cx="12" cy="12" r="10"></circle>
+                        <line x1="12" y1="8" x2="12" y2="12"></line>
+                        <line x1="12" y1="16" x2="12.01" y2="16"></line>
+                    </svg>
+                    <h3 class="empty-state-title valorant-text">오류가 발생했습니다</h3>
+                    <p class="empty-state-text">작품을 불러오는 중 문제가 발생했습니다. 다시 시도해주세요.</p>
+                </div>
+            `;
+        });
+    }
+
+    // 갤러리 작품 렌더링
+    function renderGalleryItems(artworks, tab) {
+        if (!artworks || artworks.length === 0) {
+            let message = '';
+            if (tab === 'my') {
+                message = '아직 공유한 작품이 없습니다. "온라인 공유" 버튼을 눌러 작품을 공유해보세요!';
+            } else if (tab === 'favorites') {
+                message = '즐겨찾기한 작품이 없습니다. 작품을 보고 즐겨찾기 해보세요!';
+            } else {
+                message = '공개된 작품이 없습니다. 첫 번째로 작품을 공유해보세요!';
+            }
+            
+            elements.galleryContent.innerHTML = `
+                <div class="empty-state" style="grid-column: 1 / -1;">
+                    <svg xmlns="http://www.w3.org/2000/svg" width="48" height="48" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                        <rect x="3" y="3" width="18" height="18" rx="2" ry="2"></rect>
+                        <circle cx="8.5" cy="8.5" r="1.5"></circle>
+                        <polyline points="21 15 16 10 5 21"></polyline>
+                    </svg>
+                    <h3 class="empty-state-title valorant-text">작품이 없습니다</h3>
+                    <p class="empty-state-text">${message}</p>
+                </div>
+            `;
+            return;
+        }
+        
+        elements.galleryContent.innerHTML = '';
+        
+        artworks.forEach(artwork => {
+            const galleryItem = document.createElement('div');
+            galleryItem.className = 'gallery-item';
+            galleryItem.dataset.id = artwork.id;
+            
+            // 미리보기 생성
+            const preview = document.createElement('div');
+            preview.className = 'gallery-preview';
+            
+            // 이모지 미리보기
+            const previewContent = document.createElement('div');
+            previewContent.style.fontFamily = 'monospace';
+            previewContent.style.lineHeight = '1';
+            previewContent.style.fontSize = '10px';
+            previewContent.style.whiteSpace = 'pre';
+            
+            let content = '';
+            try {
+                const board = artwork.data.board;
+                const maxRows = Math.min(board.length, 15); // 미리보기 제한
+                
+                for (let r = 0; r < maxRows; r++) {
+                    let rowText = '';
+                    const maxCols = Math.min(board[r].length, 30); // 미리보기 제한
+                    
+                    for (let c = 0; c < maxCols; c++) {
+                        if (board[r][c] === '■') {
+                            rowText += '■';
+                        } else {
+                            rowText += '□';
+                        }
+                    }
+                    content += rowText + '\n';
+                }
+            } catch (error) {
+                content = '미리보기를 표시할 수 없습니다';
+                console.error('미리보기 생성 오류:', error);
+            }
+            
+            previewContent.textContent = content;
+            preview.appendChild(previewContent);
+            
+            // 정보 섹션 생성
+            const info = document.createElement('div');
+            info.className = 'gallery-info';
+            
+            const title = document.createElement('div');
+            title.className = 'gallery-title';
+            title.textContent = artwork.title;
+            
+            const creator = document.createElement('div');
+            creator.className = 'gallery-creator';
+            creator.textContent = `by ${artwork.creator}`;
+            
+            const stats = document.createElement('div');
+            stats.className = 'gallery-stats';
+            
+            const views = document.createElement('span');
+            views.innerHTML = `<svg xmlns="http://www.w3.org/2000/svg" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"></path><circle cx="12" cy="12" r="3"></circle></svg> ${artwork.views || 0}`;
+            
+            const favorite = document.createElement('span');
+            favorite.className = 'gallery-favorite' + (appState.favorites.includes(artwork.id) ? ' active' : '');
+            favorite.innerHTML = `<svg xmlns="http://www.w3.org/2000/svg" width="12" height="12" viewBox="0 0 24 24" fill="${appState.favorites.includes(artwork.id) ? 'currentColor' : 'none'}" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M20.84 4.61a5.5 5.5 0 0 0-7.78 0L12 5.67l-1.06-1.06a5.5 5.5 0 0 0-7.78 7.78l1.06 1.06L12 21.23l7.78-7.78 1.06-1.06a5.5 5.5 0 0 0 0-7.78z"></path></svg>`;
+            
+            // 즐겨찾기 토글 이벤트
+            favorite.addEventListener('click', (e) => {
+                e.stopPropagation();
+                toggleFavorite(artwork.id, favorite);
+            });
+            
+            stats.appendChild(views);
+            stats.appendChild(favorite);
+            
+            info.appendChild(title);
+            info.appendChild(creator);
+            info.appendChild(stats);
+            
+            galleryItem.appendChild(preview);
+            galleryItem.appendChild(info);
+            
+            // 클릭 이벤트
+            galleryItem.addEventListener('click', () => {
+                openArtworkDetail(artwork);
+            });
+            
+            elements.galleryContent.appendChild(galleryItem);
+        });
+    }
+
+    // 즐겨찾기 토글
+    function toggleFavorite(artworkId, element) {
+        const isFavorite = appState.favorites.includes(artworkId);
+        
+        if (isFavorite) {
+            // 즐겨찾기 해제
+            api.removeFavorite(artworkId).then(() => {
+                appState.favorites = appState.favorites.filter(id => id !== artworkId);
+                element.classList.remove('active');
+                element.innerHTML = `<svg xmlns="http://www.w3.org/2000/svg" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M20.84 4.61a5.5 5.5 0 0 0-7.78 0L12 5.67l-1.06-1.06a5.5 5.5 0 0 0-7.78 7.78l1.06 1.06L12 21.23l7.78-7.78 1.06-1.06a5.5 5.5 0 0 0 0-7.78z"></path></svg>`;
+                utils.showToast('즐겨찾기에서 제거되었습니다', 'info');
+            }).catch(error => {
+                console.error('즐겨찾기 해제 오류:', error);
+                utils.showToast('즐겨찾기 해제 중 오류가 발생했습니다', 'error');
+            });
+        } else {
+            // 즐겨찾기 추가
+            api.addFavorite(artworkId).then(() => {
+                appState.favorites.push(artworkId);
+                element.classList.add('active');
+                element.innerHTML = `<svg xmlns="http://www.w3.org/2000/svg" width="12" height="12" viewBox="0 0 24 24" fill="currentColor" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M20.84 4.61a5.5 5.5 0 0 0-7.78 0L12 5.67l-1.06-1.06a5.5 5.5 0 0 0-7.78 7.78l1.06 1.06L12 21.23l7.78-7.78 1.06-1.06a5.5 5.5 0 0 0 0-7.78z"></path></svg>`;
+                utils.showToast('즐겨찾기에 추가되었습니다', 'success');
+            }).catch(error => {
+                console.error('즐겨찾기 추가 오류:', error);
+                utils.showToast('즐겨찾기 추가 중 오류가 발생했습니다', 'error');
+            });
+        }
+    }
+
+    // 작품 상세 정보 표시
+    function openArtworkDetail(artwork) {
+        // 조회수 증가
+        api.incrementViews(artwork.id).catch(error => {
+            console.error('조회수 증가 오류:', error);
+        });
+        
+        elements.artworkDetailTitle.textContent = artwork.title;
+        elements.artworkPreview.innerHTML = '';
+        
+        // 미리보기 생성
+        const previewContent = document.createElement('div');
+        previewContent.style.fontFamily = 'monospace';
+        previewContent.style.lineHeight = '1';
+        previewContent.style.fontSize = '14px';
+        previewContent.style.whiteSpace = 'pre';
+        
+        let content = '';
+        try {
+            const board = artwork.data.board;
+            
+            for (let r = 0; r < board.length; r++) {
+                let rowText = '';
+                for (let c = 0; c < board[r].length; c++) {
+                    if (board[r][c] === '■') {
+                        rowText += '■';
+                    } else {
+                        rowText += '□';
+                    }
+                }
+                content += rowText + '\n';
+            }
+        } catch (error) {
+            content = '미리보기를 표시할 수 없습니다';
+            console.error('미리보기 생성 오류:', error);
+        }
+        
+        previewContent.textContent = content;
+        elements.artworkPreview.appendChild(previewContent);
+        
+        // 작품 정보 표시
+        elements.artworkCreator.textContent = artwork.creator;
+        elements.artworkDate.textContent = new Date(artwork.timestamp).toLocaleString();
+        elements.artworkViews.textContent = `${artwork.views || 0} 회`;
+        elements.artworkTags.textContent = artwork.tags && artwork.tags.length > 0 ? artwork.tags.join(', ') : '태그 없음';
+        elements.artworkDesc.textContent = artwork.description || '설명 없음';
+        
+        // 즐겨찾기 버튼 상태 설정
+        const isFavorite = appState.favorites.includes(artwork.id);
+        elements.favoriteArtworkBtn.innerHTML = `
+            <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="${isFavorite ? 'currentColor' : 'none'}" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                <path d="M20.84 4.61a5.5 5.5 0 0 0-7.78 0L12 5.67l-1.06-1.06a5.5 5.5 0 0 0-7.78 7.78l1.06 1.06L12 21.23l7.78-7.78 1.06-1.06a5.5 5.5 0 0 0 0-7.78z"></path>
+            </svg>
+            ${isFavorite ? '즐겨찾기 해제' : '즐겨찾기'}
+        `;
+        
+        // 즐겨찾기 버튼 이벤트
+        elements.favoriteArtworkBtn.onclick = () => {
+            const favoriteBtn = elements.favoriteArtworkBtn;
+            
+            if (isFavorite) {
+                // 즐겨찾기 해제
+                api.removeFavorite(artwork.id).then(() => {
+                    appState.favorites = appState.favorites.filter(id => id !== artwork.id);
+                    favoriteBtn.innerHTML = `
+                        <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                            <path d="M20.84 4.61a5.5 5.5 0 0 0-7.78 0L12 5.67l-1.06-1.06a5.5 5.5 0 0 0-7.78 7.78l1.06 1.06L12 21.23l7.78-7.78 1.06-1.06a5.5 5.5 0 0 0 0-7.78z"></path>
+                        </svg>
+                        즐겨찾기
+                    `;
+                    utils.showToast('즐겨찾기에서 제거되었습니다', 'info');
+                }).catch(error => {
+                    console.error('즐겨찾기 해제 오류:', error);
+                    utils.showToast('즐겨찾기 해제 중 오류가 발생했습니다', 'error');
+                });
+            } else {
+                // 즐겨찾기 추가
+                api.addFavorite(artwork.id).then(() => {
+                    appState.favorites.push(artwork.id);
+                    favoriteBtn.innerHTML = `
+                        <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="currentColor" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                            <path d="M20.84 4.61a5.5 5.5 0 0 0-7.78 0L12 5.67l-1.06-1.06a5.5 5.5 0 0 0-7.78 7.78l1.06 1.06L12 21.23l7.78-7.78 1.06-1.06a5.5 5.5 0 0 0 0-7.78z"></path>
+                        </svg>
+                        즐겨찾기 해제
+                    `;
+                    utils.showToast('즐겨찾기에 추가되었습니다', 'success');
+                }).catch(error => {
+                    console.error('즐겨찾기 추가 오류:', error);
+                    utils.showToast('즐겨찾기 추가 중 오류가 발생했습니다', 'error');
+                });
+            }
+        };
+        
+        // 다운로드 버튼 이벤트
+        elements.downloadArtworkBtn.onclick = () => downloadArtwork(artwork);
+        
+        // 불러오기 버튼 이벤트
+        elements.loadArtworkBtn.onclick = () => loadArtworkToCanvas(artwork);
+        
+        utils.hideModal(elements.onlineModal);
+        utils.showModal(elements.artworkDetailModal);
+    }
+
+    // 작품 다운로드
+    function downloadArtwork(artwork) {
+        try {
+            const data = JSON.stringify(artwork.data);
+            const blob = new Blob([data], { type: 'application/json' });
+            const url = URL.createObjectURL(blob);
+            
+            const a = document.createElement('a');
+            a.href = url;
+            a.download = `${artwork.title}.val`; // .val 확장자로 저장
+            a.click();
+            
+            URL.revokeObjectURL(url);
+            
+            utils.showToast(`${artwork.title}.val 파일이 다운로드되었습니다`, 'success');
+        } catch (error) {
+            console.error('다운로드 오류:', error);
+            utils.showToast('다운로드 중 오류가 발생했습니다', 'error');
+        }
+    }
+
+    // 작품을 캔버스로 불러오기
+    function loadArtworkToCanvas(artwork) {
+        if (canvasRenderer.importCanvasData(artwork.data)) {
+            utils.showToast('작품을 캔버스에 불러왔습니다', 'success');
+            utils.hideModal(elements.artworkDetailModal);
+        } else {
+            utils.showToast('작품을 불러오는 데 실패했습니다', 'error');
+        }
+    }
+
+    // 키보드 단축키 핸들러
+    function handleKeyboardShortcuts(e) {
+        // 입력 요소에 포커스가 있으면 단축키 비활성화
+        if (document.activeElement.tagName === 'INPUT' || 
+            document.activeElement.tagName === 'TEXTAREA') {
+            return;
+        }
+        
+        // 단축키 처리
+        if (e.ctrlKey) {
+            switch (e.key.toLowerCase()) {
+                case 's': // Ctrl+S: 저장
+                    e.preventDefault();
+                    openSaveDialog();
+                    break;
+                case 'o': // Ctrl+O: 불러오기
+                    e.preventDefault();
+                    openLoadDialog();
+                    break;
+                case 'c': // Ctrl+C: 복사
+                    // 텍스트 선택 중이 아닐 때만 처리
+                    if (window.getSelection().toString() === '') {
+                        e.preventDefault();
+                        copyCanvas();
+                    }
+                    break;
+                case 'v': // Ctrl+V: 붙여넣기
+                    e.preventDefault();
+                    pasteCanvas();
+                    break;
+            }
+        } else {
+            switch (e.key) {
+                case 'q': // Q: 그리기/지우기 모드 전환
+                    e.preventDefault();
+                    toggleEraserMode();
+                    break;
+                case '+': 
+                case '=': // +: 브러시 크기 증가
+                    e.preventDefault();
+                    increaseBrushSize();
+                    break;
+                case '-': // -: 브러시 크기 감소
+                    e.preventDefault();
+                    decreaseBrushSize();
+                    break;
+                case 'Delete': // Delete: 전체 지우기
+                    e.preventDefault();
+                    if (confirm('모든 내용을 지우시겠습니까?')) {
+                        canvasRenderer.clearCanvas();
+                    }
+                    break;
+                case 'F1': // F1: 도움말
+                    e.preventDefault();
+                    utils.showModal(elements.helpModal);
+                    break;
+                case 'F2': // F2: 설정
+                    e.preventDefault();
+                    updateSettingsUI();
+                    utils.showModal(elements.settingsModal);
+                    break;
+            }
+        }
+    }
+
+    // 브러시 크기 변경 함수
+    function updateBrushSize(newSize) {
+        if (newSize >= 1 && newSize <= 2) { // 성능 최적화를 위해 최대 크기 2로 제한
+            settings.brushSize = newSize;
+            elements.brushSizeDisplay.textContent = newSize;
+            elements.brushSizeValue.textContent = newSize;
+            elements.brushSizeRange.value = newSize;
+            
+            // 브러시 커서 업데이트
+            if (appState.lastMousePosition) {
+                const event = {
+                    pageX: appState.lastMousePosition.x,
+                    pageY: appState.lastMousePosition.y
+                };
+                updateBrushCursor(event);
+            }
+            
+            utils.showToast(`브러시 크기: ${newSize}`, 'info');
+        }
+    }
+
+    // API 서비스 (jsonblob.com 사용)
+    const api = {
+        // JsonBlob.com API 관련 설정
+        JSONBLOB_API_URL: 'https://jsonblob.com/api/jsonBlob',
+        USER_DATA_BLOB_ID: '1234567890123456789012345', // 이 ID를 실제 생성한 JsonBlob ID로 변경해야 함
+        PUBLIC_GALLERY_BLOB_ID: '1234567890123456789012346', // 이 ID를 실제 생성한 JsonBlob ID로 변경해야 함
+        
+        // 스토리지 키
+        STORAGE_KEYS: {
+            USERNAME: 'valpaint_username',
+            FAVORITES: 'valpaint_favorites',
+            USER_BLOB_ID: 'valpaint_user_blob_id'
+        },
+        
+        // 초기화
+        async init() {
+            try {
+                // 로컬 스토리지 초기화
+                this.initializeStorage();
+                
+                // 즐겨찾기 가져오기
+                const favorites = this.getFavorites();
+                appState.favorites = favorites || [];
+                
+                // 사용자 블롭 ID 가져오기 또는 생성
+                const userBlobId = localStorage.getItem(this.STORAGE_KEYS.USER_BLOB_ID);
+                if (!userBlobId) {
+                    // 새 사용자 데이터 블롭 생성
+                    try {
+                        const response = await fetch(this.JSONBLOB_API_URL, {
+                            method: 'POST',
+                            headers: {
+                                'Content-Type': 'application/json',
+                                'Accept': 'application/json'
+                            },
+                            body: JSON.stringify({
+                                artworks: [],
+                                lastUpdated: new Date().toISOString()
+                            })
+                        });
+                        
+                        if (response.ok) {
+                            // 새로 생성된 블롭 ID 저장
+                            const location = response.headers.get('Location');
+                            const newBlobId = location.split('/').pop();
+                            localStorage.setItem(this.STORAGE_KEYS.USER_BLOB_ID, newBlobId);
+                        }
+                    } catch (error) {
+                        console.error('사용자 블롭 생성 오류:', error);
+                    }
+                }
+                
+                return Promise.resolve();
+            } catch (error) {
+                console.error('초기화 오류:', error);
+                return Promise.resolve();
+            }
+        },
+        
+        // 스토리지 초기화
+        initializeStorage() {
+            try {
+                // 즐겨찾기 스토리지 초기화
+                if (!localStorage.getItem(this.STORAGE_KEYS.FAVORITES)) {
+                    localStorage.setItem(this.STORAGE_KEYS.FAVORITES, JSON.stringify([]));
+                }
+            } catch (error) {
+                console.error('스토리지 초기화 오류:', error);
+            }
+        },
+        
+        // 작가명 저장
+        saveUsername(username) {
+            try {
+                localStorage.setItem(this.STORAGE_KEYS.USERNAME, username);
+                appState.userName = username;
+                
+                // 사용자 이름 표시 업데이트
+                const userDisplayEl = document.getElementById('userDisplayName');
+                if (userDisplayEl) {
+                    userDisplayEl.textContent = username;
+                }
+                
+                return Promise.resolve(username);
+            } catch (error) {
+                console.error('작가명 저장 오류:', error);
+                appState.userName = username; // 로컬 스토리지 실패해도 메모리에는 저장
+                return Promise.resolve(username);
+            }
+        },
+        
+        // 작가명 가져오기
+        getUsername() {
+            try {
+                const storedName = localStorage.getItem(this.STORAGE_KEYS.USERNAME);
+                return storedName || appState.userName || '작가명';
+            } catch (error) {
+                console.error('작가명 가져오기 오류:', error);
+                return appState.userName || '작가명';
+            }
+        },
+        
+        // 작품 온라인 공유
+        async shareArtwork(title, description, isPublic, data) {
+            try {
+                // 1. 사용자 블롭 ID 가져오기
+                const userBlobId = localStorage.getItem(this.STORAGE_KEYS.USER_BLOB_ID);
+                if (!userBlobId) {
+                    throw new Error('사용자 데이터를 찾을 수 없습니다.');
+                }
+                
+                // 2. 현재 사용자 데이터 가져오기
+                const response = await fetch(`${this.JSONBLOB_API_URL}/${userBlobId}`);
+                if (!response.ok) {
+                    throw new Error('사용자 데이터를 가져오는데 실패했습니다.');
+                }
+                
+                const userData = await response.json();
+                
+                // 3. 새 작품 추가
+                const artworkId = crypto.randomUUID ? crypto.randomUUID() : Date.now().toString();
+                const artwork = {
+                    id: artworkId,
+                    title: title,
+                    creator: this.getUsername(), // 작가명은 처음 설정한 이름으로 고정
+                    description: description,
+                    isPublic: isPublic,
+                    timestamp: new Date().toISOString(),
+                    views: 0,
+                    data: data
+                };
+                
+                userData.artworks.push(artwork);
+                userData.lastUpdated = new Date().toISOString();
+                
+                // 4. 업데이트된 데이터 저장
+                const updateResponse = await fetch(`${this.JSONBLOB_API_URL}/${userBlobId}`, {
+                    method: 'PUT',
+                    headers: {
+                        'Content-Type': 'application/json',
+                        'Accept': 'application/json'
+                    },
+                    body: JSON.stringify(userData)
+                });
+                
+                if (!updateResponse.ok) {
+                    throw new Error('작품 저장에 실패했습니다.');
+                }
+                
+                // 5. 공개 작품인 경우 공용 갤러리에도 추가
+                if (isPublic) {
+                    try {
+                        const publicResponse = await fetch(`${this.JSONBLOB_API_URL}/${this.PUBLIC_GALLERY_BLOB_ID}`);
+                        if (publicResponse.ok) {
+                            const publicData = await publicResponse.json();
+                            publicData.artworks.push(artwork);
+                            publicData.lastUpdated = new Date().toISOString();
+                            
+                            await fetch(`${this.JSONBLOB_API_URL}/${this.PUBLIC_GALLERY_BLOB_ID}`, {
+                                method: 'PUT',
+                                headers: {
+                                    'Content-Type': 'application/json',
+                                    'Accept': 'application/json'
+                                },
+                                body: JSON.stringify(publicData)
+                            });
+                        }
+                    } catch (publicError) {
+                        console.error('공용 갤러리 업데이트 오류:', publicError);
+                        // 공용 갤러리 업데이트 실패는 무시하고 진행
+                    }
+                }
+                
+                return Promise.resolve({ success: true, artworkId });
+            } catch (error) {
+                console.error('작품 공유 오류:', error);
+                return Promise.reject(error);
+            }
+        },
+        
+        // 사용자 작품 가져오기
+        async getUserArtworks() {
+            try {
+                // 1. 사용자 블롭 ID 가져오기
+                const userBlobId = localStorage.getItem(this.STORAGE_KEYS.USER_BLOB_ID);
+                if (!userBlobId) {
+                    // 사용자 블롭이 없으면 로컬 저장 파일 반환
+                    return this.getLocalArtworks();
+                }
+                
+                // 2. 사용자 데이터 가져오기
+                const response = await fetch(`${this.JSONBLOB_API_URL}/${userBlobId}`);
+                if (!response.ok) {
+                    throw new Error('사용자 데이터를 가져오는데 실패했습니다.');
+                }
+                
+                const userData = await response.json();
+                return userData.artworks || [];
+            } catch (error) {
+                console.error('사용자 작품 가져오기 오류:', error);
+                // 오류 발생 시 로컬 파일 반환
+                return this.getLocalArtworks();
+            }
+        },
+        
+        // 로컬 파일에서 작품 가져오기
+        getLocalArtworks() {
+            // 오프라인 모드에서는 로컬 스토리지의 파일 목록을 반환
+            const files = utils.storage.getFileList();
+            const artworks = files.map(fileName => {
+                const data = utils.storage.loadFile(fileName);
+                return {
+                    id: fileName,
+                    title: fileName.replace(/\.val$/, ''),
+                    creator: data?.author || this.getUsername(),
+                    timestamp: data?.timestamp || new Date().toISOString(),
+                    views: 0,
+                    data: data
+                };
+            });
+            return Promise.resolve(artworks);
+        },
+        
+        // 공용 갤러리 작품 가져오기
+        async getPublicArtworks() {
+            try {
+                const response = await fetch(`${this.JSONBLOB_API_URL}/${this.PUBLIC_GALLERY_BLOB_ID}`);
+                if (!response.ok) {
+                    throw new Error('공용 갤러리를 가져오는데 실패했습니다.');
+                }
+                
+                const galleryData = await response.json();
+                return galleryData.artworks || [];
+            } catch (error) {
+                console.error('공용 갤러리 가져오기 오류:', error);
+                return Promise.resolve([]);
+            }
+        },
+        
+        // 즐겨찾기 작품 가져오기
+        async getFavoriteArtworks() {
+            try {
+                const favorites = this.getFavorites();
+                if (!favorites || favorites.length === 0) {
+                    return Promise.resolve([]);
+                }
+                
+                // 사용자 작품과 공용 갤러리에서 즐겨찾기된 작품 찾기
+                const userArtworks = await this.getUserArtworks();
+                const publicArtworks = await this.getPublicArtworks();
+                
+                // 모든 작품 합치기
+                const allArtworks = [...userArtworks, ...publicArtworks];
+                
+                // 즐겨찾기된 작품만 필터링
+                const favoriteArtworks = allArtworks.filter(artwork => 
+                    favorites.includes(artwork.id)
+                );
+                
+                return Promise.resolve(favoriteArtworks);
+            } catch (error) {
+                console.error('즐겨찾기 작품 가져오기 오류:', error);
+                return Promise.resolve([]);
+            }
+        },
+        
+        // 즐겨찾기 관련 함수
+        getFavorites() {
+            try {
+                const favorites = JSON.parse(localStorage.getItem(this.STORAGE_KEYS.FAVORITES) || '[]');
+                return favorites;
+            } catch (error) {
+                console.error('즐겨찾기 가져오기 오류:', error);
+                return [];
+            }
+        },
+        
+        addFavorite(artworkId) {
+            try {
+                const favorites = this.getFavorites();
+                
+                if (!favorites.includes(artworkId)) {
+                    favorites.push(artworkId);
+                    localStorage.setItem(this.STORAGE_KEYS.FAVORITES, JSON.stringify(favorites));
+                    appState.favorites = favorites;
+                }
+                
+                return Promise.resolve(favorites);
+            } catch (error) {
+                console.error('즐겨찾기 추가 오류:', error);
+                return Promise.resolve([]);
+            }
+        },
+        
+        removeFavorite(artworkId) {
+            try {
+                let favorites = this.getFavorites();
+                
+                favorites = favorites.filter(id => id !== artworkId);
+                localStorage.setItem(this.STORAGE_KEYS.FAVORITES, JSON.stringify(favorites));
+                appState.favorites = favorites;
+                
+                return Promise.resolve(favorites);
+            } catch (error) {
+                console.error('즐겨찾기 제거 오류:', error);
+                return Promise.resolve([]);
+            }
+        },
+        
+        // 조회수 증가
+        async incrementViews(artworkId) {
+            try {
+                // 1. 사용자 블롭과 공용 갤러리에서 작품 찾기
+                const userBlobId = localStorage.getItem(this.STORAGE_KEYS.USER_BLOB_ID);
+                
+                // 사용자 작품에서 찾기
+                if (userBlobId) {
+                    const userResponse = await fetch(`${this.JSONBLOB_API_URL}/${userBlobId}`);
+                    if (userResponse.ok) {
+                        const userData = await userResponse.json();
+                        
+                        const artworkIndex = userData.artworks.findIndex(a => a.id === artworkId);
+                        if (artworkIndex !== -1) {
+                            // 조회수 증가
+                            userData.artworks[artworkIndex].views = (userData.artworks[artworkIndex].views || 0) + 1;
+                            userData.lastUpdated = new Date().toISOString();
+                            
+                            // 업데이트
+                            await fetch(`${this.JSONBLOB_API_URL}/${userBlobId}`, {
+                                method: 'PUT',
+                                headers: {
+                                    'Content-Type': 'application/json',
+                                    'Accept': 'application/json'
+                                },
+                                body: JSON.stringify(userData)
+                            });
+                        }
+                    }
+                }
+                
+                // 공용 갤러리에서도 찾기
+                const publicResponse = await fetch(`${this.JSONBLOB_API_URL}/${this.PUBLIC_GALLERY_BLOB_ID}`);
+                if (publicResponse.ok) {
+                    const publicData = await publicResponse.json();
+                    
+                    const artworkIndex = publicData.artworks.findIndex(a => a.id === artworkId);
+                    if (artworkIndex !== -1) {
+                        // 조회수 증가
+                        publicData.artworks[artworkIndex].views = (publicData.artworks[artworkIndex].views || 0) + 1;
+                        publicData.lastUpdated = new Date().toISOString();
+                        
+                        // 업데이트
+                        await fetch(`${this.JSONBLOB_API_URL}/${this.PUBLIC_GALLERY_BLOB_ID}`, {
+                            method: 'PUT',
+                            headers: {
+                                'Content-Type': 'application/json',
+                                'Accept': 'application/json'
+                            },
+                            body: JSON.stringify(publicData)
+                        });
+                    }
+                }
+                
+                return Promise.resolve();
+            } catch (error) {
+                console.error('조회수 증가 오류:', error);
+                return Promise.resolve();
+            }
+        }
+    };
+
+    // 유틸리티 함수 모음
+    const utils = {
+        // 모달 표시/숨기기
+        showModal: function(modal) {
+            if (!modal) return;
+            modal.style.display = 'flex';
+            setTimeout(() => {
+                modal.classList.add('show');
+            }, 10);
+        },
+        
+        hideModal: function(modal) {
+            if (!modal) return;
+            modal.classList.remove('show');
+            setTimeout(() => {
+                modal.style.display = 'none';
+            }, 300);
+        },
+        
+        // 토스트 알림 표시 (개선된 버전)
+        showToast: function(message, type = 'info', duration = 4000) {
+            let toastContainer = document.getElementById('toast-container');
+            if (!toastContainer) {
+                toastContainer = document.createElement('div');
+                toastContainer.id = 'toast-container';
+                toastContainer.style.position = 'fixed';
+                toastContainer.style.top = '20px';
+                toastContainer.style.right = '20px';
+                toastContainer.style.zIndex = '9999';
+                toastContainer.style.display = 'flex';
+                toastContainer.style.flexDirection = 'column';
+                toastContainer.style.gap = '10px';
+                document.body.appendChild(toastContainer);
+            }
+            
+            const toast = document.createElement('div');
+            toast.className = `toast ${type}`;
+            toast.style.display = 'flex';
+            toast.style.alignItems = 'center';
+            toast.style.padding = '12px 16px';
+            toast.style.background = 'var(--secondary-bg)';
+            toast.style.borderLeft = `4px solid ${type === 'error' ? 'var(--accent-color)' : type === 'success' ? '#00c853' : type === 'warning' ? '#ffc107' : '#1e90ff'}`;
+            toast.style.borderRadius = '4px';
+            toast.style.boxShadow = '0 4px 12px rgba(0, 0, 0, 0.3)';
+            toast.style.transform = 'translateX(100%)';
+            toast.style.opacity = '0';
+            toast.style.transition = 'all 0.3s ease';
+            
+            // 아이콘 추가
+            let iconSvg = '';
+            switch(type) {
+                case 'success':
+                    iconSvg = `<svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="#00c853" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M22 11.08V12a10 10 0 1 1-5.93-9.14"></path><polyline points="22 4 12 14.01 9 11.01"></polyline></svg>`;
+                    break;
+                case 'error':
+                    iconSvg = `<svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="#ff4655" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"></circle><line x1="15" y1="9" x2="9" y2="15"></line><line x1="9" y1="9" x2="15" y2="15"></line></svg>`;
+                    break;
+                case 'warning':
+                    iconSvg = `<svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="#ffc107" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M10.29 3.86L1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0z"></path><line x1="12" y1="9" x2="12" y2="13"></line><line x1="12" y1="17" x2="12.01" y2="17"></line></svg>`;
+                    break;
+                case 'info':
+                default:
+                    iconSvg = `<svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="#1e90ff" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"></circle><line x1="12" y1="16" x2="12" y2="12"></line><line x1="12" y1="8" x2="12.01" y2="8"></line></svg>`;
+                    break;
+            }
+            
+            const iconWrapper = document.createElement('div');
+            iconWrapper.className = 'toast-icon';
+            iconWrapper.style.marginRight = '12px';
+            iconWrapper.innerHTML = iconSvg;
+            
+            const contentWrapper = document.createElement('div');
+            contentWrapper.className = 'toast-content';
+            contentWrapper.textContent = message;
+            contentWrapper.style.flex = '1';
+            contentWrapper.style.fontSize = '14px';
+            
+            const closeBtn = document.createElement('button');
+            closeBtn.className = 'toast-close';
+            closeBtn.innerHTML = '×';
+            closeBtn.style.background = 'none';
+            closeBtn.style.border = 'none';
+            closeBtn.style.color = 'var(--text-muted)';
+            closeBtn.style.fontSize = '18px';
+            closeBtn.style.cursor = 'pointer';
+            closeBtn.style.marginLeft = '8px';
+            closeBtn.style.padding = '0 4px';
+            
+            toast.appendChild(iconWrapper);
+            toast.appendChild(contentWrapper);
+            toast.appendChild(closeBtn);
+            
+            // 닫기 버튼 이벤트
+            closeBtn.addEventListener('click', () => {
+                toast.style.transform = 'translateX(100%)';
+                toast.style.opacity = '0';
+                setTimeout(() => {
+                    toast.remove();
+                }, 300);
+            });
+            
+            toastContainer.appendChild(toast);
+            
+            // 애니메이션 적용 (추가 후 약간 딜레이)
+            setTimeout(() => {
+                toast.style.transform = 'translateX(0)';
+                toast.style.opacity = '1';
+            }, 10);
+            
+            // 자동 닫힘
+            setTimeout(() => {
+                toast.style.transform = 'translateX(100%)';
+                toast.style.opacity = '0';
+                setTimeout(() => {
+                    toast.remove();
+                }, 300);
+            }, duration);
+        },
+        
+        // 로컬 스토리지 유틸리티
+        storage: {
+            // 파일 저장
+            saveFile: function(fileName, data) {
+                try {
+                    localStorage.setItem(`valpaint_${fileName}`, JSON.stringify(data));
+                    return true;
+                } catch (error) {
+                    console.error('파일 저장 오류:', error);
+                    utils.showToast('파일 저장 중 오류가 발생했습니다', 'error');
+                    return false;
+                }
+            },
+            
+            // 파일 불러오기
+            loadFile: function(fileName) {
+                try {
+                    const data = localStorage.getItem(`valpaint_${fileName}`);
+                    return data ? JSON.parse(data) : null;
+                } catch (error) {
+                    console.error('파일 로드 오류:', error);
+                    utils.showToast('파일 로드 중 오류가 발생했습니다', 'error');
+                    return null;
+                }
+            },
+            
+            // 파일 삭제
+            deleteFile: function(fileName) {
+                try {
+                    localStorage.removeItem(`valpaint_${fileName}`);
+                    return true;
+                } catch (error) {
+                    console.error('파일 삭제 오류:', error);
+                    utils.showToast('파일 삭제 중 오류가 발생했습니다', 'error');
+                    return false;
+                }
+            },
+            
+            // 파일 목록 가져오기
+            getFileList: function() {
+                const files = [];
+                try {
+                    for (let i = 0; i < localStorage.length; i++) {
+                        const key = localStorage.key(i);
+                        if (key && key.startsWith('valpaint_')) {
+                            files.push(key.replace('valpaint_', ''));
+                        }
+                    }
+                    return files;
+                } catch (error) {
+                    console.error('파일 목록 오류:', error);
+                    return [];
+                }
+            }
+        },
+        
+        // 파일 이름 유효성 검사
+        sanitizeFileName: function(fileName) {
+            if (!fileName || fileName.trim() === '') {
+                return '';
+            }
+            return fileName.trim().replace(/[^a-zA-Z0-9가-힣ㄱ-ㅎㅏ-ㅣ_\-]/g, '');
+        }
+    };
+
+    // 도메인 검증 함수
+    function validateDomain() {
+        const allowedDomain = "valpaint.kro.kr";
+        const currentHost = window.location.hostname;
+        
+        // 개발 모드나 허용된 도메인만 접근 가능
+        if (currentHost !== allowedDomain && currentHost !== "localhost" && currentHost !== "127.0.0.1") {
+            document.body.innerHTML = `
+                <div style="text-align: center; padding: 50px; font-family: Arial, sans-serif; background-color: var(--main-bg); color: var(--text-color); height: 100vh; display: flex; flex-direction: column; justify-content: center; align-items: center;">
+                    <h1 style="color: var(--accent-color); font-family: var(--valorant-font);">접근 제한됨</h1>
+                    <p>이 애플리케이션은 공식 도메인(${allowedDomain})에서만 실행할 수 있습니다.</p>
+                    <a href="http://${allowedDomain}" style="color: var(--accent-color); margin-top: 20px; padding: 10px 20px; border: 1px solid var(--accent-color); text-decoration: none; font-family: var(--valorant-font);">공식 사이트로 이동</a>
+                </div>
+            `;
+            return false;
+        }
+        return true;
+    }
+
+    // 초기화 및 이벤트 핸들러 설정
+    async function initialize() {
+        // 도메인 검증
+        if (!validateDomain()) {
+            // 도메인 검증 실패 시 더 이상 진행하지 않음
+            const loadingScreen = document.getElementById('loading-screen');
+            if (loadingScreen) {
+                loadingScreen.style.display = 'none';
+            }
+            return;
+        }
+        
+        // 로딩 화면 표시
+        const loadingScreen = document.getElementById('loading-screen');
+        
+        try {
+            // 모달 생성
+            createModals();
+            
+            // API 초기화
+            await api.init();
+            
+            // 작가명이 설정되어 있는지 확인
+            const username = api.getUsername();
+            
+            if (username && username !== '작가명') {
+                // 작가명이 있으면 바로 시작
+                await startApp();
+            } else {
+                // 작가명이 없으면 설정 모달 표시
+                setTimeout(() => {
+                    if (loadingScreen) {
+                        loadingScreen.style.display = 'none';
+                    }
+                    
+                    utils.showModal(document.getElementById('username-modal'));
+                    
+                    // 작가명 제출 버튼 이벤트
+                    const usernameSubmitBtn = document.getElementById('usernameSubmitBtn');
+                    const usernameInput = document.getElementById('usernameInput');
+                    
+                    if (usernameSubmitBtn && usernameInput) {
+                        usernameSubmitBtn.addEventListener('click', async () => {
+                            const username = usernameInput.value.trim();
+                            
+                            if (username) {
+                                await api.saveUsername(username);
+                                utils.hideModal(document.getElementById('username-modal'));
+                                await startApp();
+                            } else {
+                                utils.showToast('작가명을 입력해주세요', 'error');
+                            }
+                        });
+                        
+                        // 엔터 키 이벤트
+                        usernameInput.addEventListener('keyup', (e) => {
+                            if (e.key === 'Enter') {
+                                usernameSubmitBtn.click();
+                            }
+                        });
+                    }
+                }, 1500);
+            }
+        } catch (error) {
+            console.error('초기화 오류:', error);
+            
+            // 로딩 화면 숨기기
+            if (loadingScreen) {
+                loadingScreen.style.display = 'none';
+            }
+            
+            utils.showToast('초기화 중 오류가 발생했습니다. 새로고침 후 다시 시도해주세요.', 'error');
+        }
+    }
+    
+    // 에러 핸들링 개선
+    window.onerror = function(message, source, lineno, colno, error) {
+        console.error('Global error:', message, error);
+        utils.showToast(`오류가 발생했습니다: ${message}`, 'error');
+        return false;
+    };
+
+    // JSON 파싱 오류 방지 함수
+    function safeParseJSON(text) {
+        try {
+            return JSON.parse(text);
+        } catch (e) {
+            console.error('JSON 파싱 오류:', e);
+            return null;
+        }
+    }
+
+    // 각종 catch 블록에서 유용한 기본 오류 처리 함수
+    function handleError(error, message = '오류가 발생했습니다', silent = false) {
+        console.error(message, error);
+        if (!silent) {
+            utils.showToast(`${message}: ${error.message || '알 수 없는 오류'}`, 'error');
+        }
+    }
+
+    // 앱 시작 개선
+    async function startApp() {
+        try {
+            // 로딩 화면 숨기기
+            const loadingScreen = document.getElementById('loading-screen');
+            if (loadingScreen) {
+                loadingScreen.style.display = 'none';
+            }
+            
+            // 사용자 이름 표시 업데이트
+            const userDisplayEl = document.getElementById('userDisplayName');
+            if (userDisplayEl) {
+                userDisplayEl.textContent = api.getUsername();
+            }
+            
+            // 캔버스 초기화
+            canvasRenderer.initCanvas();
+            
+            // VAL 파일 버튼 추가
+            addVALFileButtons();
+            
+            // 도구 버튼 이벤트
+            if (elements.drawEraseBtn) {
+                elements.drawEraseBtn.addEventListener('click', toggleEraserMode);
+            }
+            if (elements.clearBtn) {
+                elements.clearBtn.addEventListener('click', () => {
+                    if (confirm('모든 내용을 지우시겠습니까?')) {
+                        canvasRenderer.clearCanvas();
+                    }
+                });
+            }
+            
+            // 브러시 크기 버튼 이벤트
+            if (elements.brushSizeDownBtn && elements.brushSizeUpBtn) {
+                elements.brushSizeDownBtn.addEventListener('click', decreaseBrushSize);
+                elements.brushSizeUpBtn.addEventListener('click', increaseBrushSize);
+            }
+            
+            // 파일 관리 버튼 이벤트
+            if (elements.saveBtn && elements.loadBtn) {
+                elements.saveBtn.addEventListener('click', openSaveDialog);
+                elements.loadBtn.addEventListener('click', openLoadDialog);
+            }
+            
+            // 복사/붙여넣기 버튼 이벤트
+            if (elements.copyBtn && elements.pasteBtn) {
+                elements.copyBtn.addEventListener('click', copyCanvas);
+                elements.pasteBtn.addEventListener('click', pasteCanvas);
+            }
+            
+            // 공유 버튼 이벤트
+            if (elements.shareBtn) {
+                elements.shareBtn.addEventListener('click', openShareModal);
+            }
+            
+            // 설정 및 도움말 버튼 이벤트
+            if (elements.settingsBtn && elements.helpBtn) {
+                elements.settingsBtn.addEventListener('click', () => {
+                    updateSettingsUI();
+                    utils.showModal(elements.settingsModal);
+                });
+                elements.helpBtn.addEventListener('click', () => {
+                    utils.showModal(elements.helpModal);
+                });
+            }
+            
+            // 온라인 갤러리 버튼 이벤트
+            if (elements.onlineBtn) {
+                elements.onlineBtn.addEventListener('click', openOnlineGallery);
+            }
+            
+            // 내보내기/가져오기 버튼 이벤트
+            if (elements.exportImportBtn) {
+                elements.exportImportBtn.addEventListener('click', openExportImportDialog);
+            }
+            
+            // 모달 닫기 이벤트
+            document.querySelectorAll('.modal-close').forEach(closeBtn => {
+                closeBtn.addEventListener('click', (e) => {
+                    const modal = e.target.closest('.modal');
+                    if (modal) utils.hideModal(modal);
+                });
+            });
+            
+            // 설정 모달 이벤트
+            if (elements.cellSizeRange) {
+                elements.cellSizeRange.addEventListener('input', () => {
+                    if (elements.cellSizeValue) {
+                        elements.cellSizeValue.textContent = `${elements.cellSizeRange.value}px`;
+                    }
+                });
+            }
+            
+            if (elements.brushSizeRange) {
+                elements.brushSizeRange.addEventListener('input', () => {
+                    if (elements.brushSizeValue) {
+                        elements.brushSizeValue.textContent = elements.brushSizeRange.value;
+                    }
+                });
+            }
+            
+            // 커스텀 이모지 설정 변경 이벤트
+            if (elements.customModeSwitch) {
+                elements.customModeSwitch.addEventListener('change', () => {
+                    elements.customEmojiSettings.style.display = elements.customModeSwitch.checked ? 'block' : 'none';
+                    
+                    // 커스텀 모드가 켜져 있으면 배경 투명 모드 비활성화
+                    if (elements.customModeSwitch.checked) {
+                        elements.bgModeSwitch.checked = false;
+                        elements.bgModeSwitch.disabled = true;
+                    } else {
+                        elements.bgModeSwitch.disabled = false;
+                    }
+                });
+            }
+            
+            // 설정 저장/취소 버튼
+            if (elements.settingsCancelBtn && elements.settingsModal) {
+                elements.settingsCancelBtn.addEventListener('click', () => {
+                    utils.hideModal(elements.settingsModal);
+                });
+            }
+            if (elements.settingsSaveBtn) {
+                elements.settingsSaveBtn.addEventListener('click', applySettings);
+            }
+            
+            // 파일 모달 이벤트
+            if (elements.fileModalCancelBtn && elements.fileModal) {
+                elements.fileModalCancelBtn.addEventListener('click', () => {
+                    utils.hideModal(elements.fileModal);
+                });
+            }
+            
+            if (elements.fileActionBtn) {
+                elements.fileActionBtn.addEventListener('click', () => {
+                    if (elements.fileModalTitle && elements.fileModalTitle.textContent === '파일 저장') {
+                        saveFile();
+                    } else {
+                        loadFile();
+                    }
+                });
+            }
+            
+            if (elements.fileDeleteBtn) {
+                elements.fileDeleteBtn.addEventListener('click', deleteFile);
+            }
+            
+            if (elements.fileExportBtn) {
+                elements.fileExportBtn.addEventListener('click', exportSelectedFile);
+            }
+            
+            // 내보내기/가져오기 모달 이벤트
+            if (elements.exportImportCancelBtn) {
+                elements.exportImportCancelBtn.addEventListener('click', () => {
+                    utils.hideModal(elements.exportImportModal);
+                });
+            }
+            
+            if (elements.exportBtn) {
+                elements.exportBtn.addEventListener('click', () => {
+                    // 내보내기 모드 설정
+                    elements.exportImportTitle.textContent = '파일 내보내기';
+                    elements.importFileInput.style.display = 'none';
+                    elements.exportFileNameGroup.style.display = 'block';
+                    elements.executeExportImportBtn.style.display = 'inline-block';
+                    elements.executeExportImportBtn.textContent = '내보내기';
+                    
+                    // 기본 파일명 설정 (현재 날짜/시간 기준)
+                    const now = new Date();
+                    const defaultFileName = `valpaint_${now.getFullYear()}${(now.getMonth()+1).toString().padStart(2, '0')}${now.getDate().toString().padStart(2, '0')}_${now.getHours().toString().padStart(2, '0')}${now.getMinutes().toString().padStart(2, '0')}`;
+                    elements.exportFileName.value = defaultFileName;
+                    
+                    // 내보내기 버튼 이벤트 설정
+                    elements.executeExportImportBtn.onclick = exportFile;
+                });
+            }
+            
+            if (elements.importBtn) {
+                elements.importBtn.addEventListener('click', () => {
+                    // 가져오기 모드 설정
+                    elements.exportImportTitle.textContent = '파일 가져오기';
+                    elements.importFileInput.style.display = 'block';
+                    elements.exportFileNameGroup.style.display = 'none';
+                    elements.executeExportImportBtn.style.display = 'inline-block';
+                    elements.executeExportImportBtn.textContent = '가져오기';
+                    
+                    // 파일 입력 초기화
+                    document.getElementById('fileInput').value = '';
+                    
+                    // 가져오기 버튼 이벤트 설정
+                    elements.executeExportImportBtn.onclick = importFile;
+                });
+            }
+            
+            // 공유 모달 이벤트
+            if (elements.shareModalCancelBtn && elements.shareModal) {
+                elements.shareModalCancelBtn.addEventListener('click', () => {
+                    utils.hideModal(elements.shareModal);
+                });
+            }
+            if (elements.shareActionBtn) {
+                elements.shareActionBtn.addEventListener('click', shareArtwork);
+            }
+            
+            // 온라인 갤러리 탭 이벤트
+            document.querySelectorAll('.online-tab').forEach(tab => {
+                tab.addEventListener('click', () => {
+                    loadGalleryItems(tab.dataset.tab);
+                });
+            });
+            
+            // 갤러리 검색 이벤트
+            if (elements.searchInput) {
+                elements.searchInput.addEventListener('keyup', (e) => {
+                    if (e.key === 'Enter') {
+                        const activeTab = document.querySelector('.online-tab.active');
+                        if (activeTab) {
+                            loadGalleryItems(activeTab.dataset.tab);
+                        }
+                    }
+                });
+            }
+            
+            // 갤러리 새로고침 버튼
+            if (elements.refreshGalleryBtn) {
+                elements.refreshGalleryBtn.addEventListener('click', () => {
+                    const activeTab = document.querySelector('.online-tab.active');
+                    if (activeTab) {
+                        loadGalleryItems(activeTab.dataset.tab);
+                    }
+                });
+            }
+            
+            // 도움말 모달 이벤트
+            if (elements.helpCloseBtn && elements.helpModal) {
+                elements.helpCloseBtn.addEventListener('click', () => {
+                    utils.hideModal(elements.helpModal);
+                });
+            }
+            
+            // 단축키 버튼 이벤트
+            if (elements.shortcutsBtn && elements.shortcutsModal) {
+                elements.shortcutsBtn.addEventListener('click', () => {
+                    utils.hideModal(elements.helpModal);
+                    utils.showModal(elements.shortcutsModal);
+                });
+            }
+            
+            // 단축키 모달 이벤트
+            if (elements.shortcutsCloseBtn && elements.shortcutsModal) {
+                elements.shortcutsCloseBtn.addEventListener('click', () => {
+                    utils.hideModal(elements.shortcutsModal);
+                });
+            }
+            
+            // 브러시 커서 이벤트
+            document.addEventListener('mousemove', updateBrushCursor);
+            
+            // 마우스 업 이벤트 (드래그 종료)
+            document.addEventListener('mouseup', () => {
+                appState.isDragging = false;
+                appState.lastCellPosition = null;
+                
+                // 디바운스 타이머 정리
+                if (appState.debounceTimer) {
+                    clearTimeout(appState.debounceTimer);
+                    appState.debounceTimer = null;
+                }
+            });
+            
+            // 브러시 커서 표시/숨김
+            document.addEventListener('mouseenter', () => {
+                if (elements.brushCursor) elements.brushCursor.style.display = 'block';
+            });
+
+            document.addEventListener('mouseleave', () => {
+                if (elements.brushCursor) elements.brushCursor.style.display = 'none';
+            });
+
+            // 키보드 단축키
+            document.addEventListener('keydown', handleKeyboardShortcuts);
+            
+            // 브러시 커서 초기 설정
+            if (elements.brushCursor) {
+                elements.brushCursor.style.display = 'none';
+            }
+            
+            // 개선된 토스트 메시지
+            utils.showToast('VALPAINT가 준비되었습니다!', 'success');
+            
+            // VAL 파일 버튼 추가
+            addVALFileButtons();
+        } catch (error) {
+            handleError(error, '앱 시작 중 오류가 발생했습니다');
+        }
+    }
+
+    // 애플리케이션 시작
+    document.addEventListener('DOMContentLoaded', initialize);
+    
+    // 시작 시 VALPAINT 토스트 메시지 표시
+    window.onload = function() {
+        setTimeout(() => {
+            utils.showToast('VALPAINT에 오신 것을 환영합니다!', 'success');
+            
+            // 모든 중요 요소에 VALORANT 폰트 적용
+            applyValorantFont();
+        }, 2000);
+    };
+    
+    // VALORANT 폰트 적용 함수
+    function applyValorantFont() {
+        // 모든 모달 제목에 폰트 적용
+        const modalTitles = document.querySelectorAll('.modal-title');
+        modalTitles.forEach(el => {
+            if (!el.classList.contains('valorant-text')) {
+                el.classList.add('valorant-text');
+            }
+        });
+        
+        // 버튼 내부 텍스트에 폰트 적용
+        const buttons = document.querySelectorAll('.btn');
+        buttons.forEach(button => {
+            // 이미 처리된 버튼이면 건너뛰기
+            if (button.dataset.fontApplied) return;
+            
+            // 버튼 내의 텍스트 노드 찾기
+            let textNodes = [];
+            for (let i = 0; i < button.childNodes.length; i++) {
+                const node = button.childNodes[i];
+                if (node.nodeType === Node.TEXT_NODE && node.textContent.trim() !== '') {
+                    textNodes.push(node);
+                }
+            }
+            
+            // 텍스트 노드 처리
+            textNodes.forEach(node => {
+                const text = node.textContent.trim();
+                if (text) {
+                    const span = document.createElement('span');
+                    span.className = 'valorant-text';
+                    span.textContent = text;
+                    button.insertBefore(span, node);
+                    button.removeChild(node);
+                }
+            });
+            
+            // 처리 표시
+            button.dataset.fontApplied = 'true';
+        });
+    }
+
+    // 도메인 검증 함수
+    function validateDomain() {
+        const allowedDomain = "valpaint.kro.kr";
+        const currentHost = window.location.hostname;
+        
+        if (currentHost !== allowedDomain && currentHost !== "localhost" && currentHost !== "127.0.0.1") {
+            document.body.innerHTML = `
+                <div style="text-align: center; padding: 50px; font-family: Arial, sans-serif;">
+                    <h1 style="color: #ff4655;">접근 제한됨</h1>
+                    <p>이 애플리케이션은 공식 도메인(${allowedDomain})에서만 실행할 수 있습니다.</p>
+                    <a href="http://${allowedDomain}" style="color: #ff4655;">공식 사이트로 이동</a>
+                </div>
+            `;
+            return false;
+        }
+        return true;
+    }
+    
+    // VAL 파일 관련 모달 추가
+    function createExportImportModal() {
+        // 이미 존재하는지 확인
+        if (document.getElementById('exportImportModal')) return;
+        
+        const modal = document.createElement('div');
+        modal.id = 'exportImportModal';
+        modal.className = 'modal';
+        
+        modal.innerHTML = `
+            <div class="modal-content">
+                <div class="modal-header">
+                    <h2 class="valorant-text">VAL 파일 내보내기</h2>
+                    <button class="close-btn">&times;</button>
+                </div>
+                <div class="modal-body">
+                    <form id="exportFileForm">
+                        <div class="form-group">
+                            <label for="exportFileName">파일 이름</label>
+                            <input type="text" id="exportFileName" placeholder="파일 이름을 입력하세요">
+                        </div>
+                        <div class="form-actions">
+                            <button type="button" class="btn btn-accent" id="exportFileBtn">내보내기</button>
+                            <button type="button" class="btn" id="cancelExportBtn">취소</button>
+                        </div>
+                    </form>
+                    
+                    <form id="importFileForm" style="display: none;">
+                        <div class="form-group">
+                            <label for="fileInput">VAL 파일 선택</label>
+                            <input type="file" id="fileInput" accept=".val">
+                        </div>
+                        <div class="form-actions">
+                            <button type="button" class="btn btn-accent" id="importFileBtn">가져오기</button>
+                            <button type="button" class="btn" id="cancelImportBtn">취소</button>
+                        </div>
+                    </form>
+                </div>
+            </div>
+        `;
+        
+        document.body.appendChild(modal);
+        elements.exportImportModal = modal;
+        elements.exportFileName = document.getElementById('exportFileName');
+        elements.exportFileForm = document.getElementById('exportFileForm');
+        elements.importFileForm = document.getElementById('importFileForm');
+        
+        // 이벤트 핸들러
+        const closeBtn = modal.querySelector('.close-btn');
+        closeBtn.addEventListener('click', () => utils.hideModal(modal));
+        
+        const exportFileBtn = document.getElementById('exportFileBtn');
+        exportFileBtn.addEventListener('click', exportFile);
+        
+        const cancelExportBtn = document.getElementById('cancelExportBtn');
+        cancelExportBtn.addEventListener('click', () => utils.hideModal(modal));
+        
+        const importFileBtn = document.getElementById('importFileBtn');
+        importFileBtn.addEventListener('click', importFile);
+        
+        const cancelImportBtn = document.getElementById('cancelImportBtn');
+        cancelImportBtn.addEventListener('click', () => utils.hideModal(modal));
+    }
+    
+    // 초기화 시 모달 생성
+    function createModals() {
+        // 사용자 이름 설정 모달
+        const usernameModal = document.createElement('div');
+        usernameModal.id = 'username-modal';
+        usernameModal.className = 'modal';
+        usernameModal.innerHTML = `
+            <div class="modal-content">
+                <div class="modal-header">
+                    <h2 class="valorant-text">작가명 설정</h2>
+                </div>
+                <div class="modal-body">
+                    <p>Valpaint를 사용하기 전에 작가명을 설정해주세요. 설정된 작가명은 온라인 공유 시 사용됩니다.</p>
+                    <div class="form-group">
+                        <label for="usernameInput">작가명</label>
+                        <input type="text" id="usernameInput" placeholder="작가명을 입력하세요">
+                    </div>
+                    <div class="form-actions">
+                        <button type="button" class="btn btn-accent" id="usernameSubmitBtn">시작하기</button>
+                    </div>
+                </div>
+            </div>
+        `;
+        document.body.appendChild(usernameModal);
+        elements.usernameModal = usernameModal;
+        
+        // 파일 관리 모달
+        const fileModal = document.createElement('div');
+        fileModal.id = 'file-modal';
+        fileModal.className = 'modal';
+        fileModal.innerHTML = `
+            <div class="modal-content">
+                <div class="modal-header">
+                    <h2 class="valorant-text">파일 관리</h2>
+                    <button class="close-btn">&times;</button>
+                </div>
+                <div class="modal-body">
+                    <div class="file-tabs">
+                        <button class="file-tab active" data-tab="save">저장</button>
+                        <button class="file-tab" data-tab="load">불러오기</button>
+                    </div>
+                    
+                    <div class="file-panel" id="save-panel">
+                        <div class="form-group">
+                            <label for="fileNameInput">파일 이름</label>
+                            <input type="text" id="fileNameInput" placeholder="파일 이름을 입력하세요">
+                        </div>
+                        <div class="form-actions">
+                            <button type="button" class="btn btn-accent" id="saveFileBtn">저장</button>
+                        </div>
+                    </div>
+                    
+                    <div class="file-panel" id="load-panel" style="display: none;">
+                        <div class="file-list-container">
+                            <div class="file-list" id="fileList">
+                                <div class="empty-message">저장된 파일이 없습니다</div>
+                            </div>
+                        </div>
+                        <div class="file-preview">
+                            <div class="preview-container" id="filePreview">
+                                <div class="preview-placeholder">파일을 선택하세요</div>
+                            </div>
+                        </div>
+                        <div class="form-actions">
+                            <button type="button" class="btn btn-accent" id="loadFileBtn">불러오기</button>
+                            <button type="button" class="btn" id="deleteFileBtn">삭제</button>
+                            <button type="button" class="btn" id="exportSelectedBtn">내보내기</button>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        `;
+        document.body.appendChild(fileModal);
+        elements.fileModal = fileModal;
+        elements.fileNameInput = document.getElementById('fileNameInput');
+        elements.fileList = document.getElementById('fileList');
+        elements.filePreview = document.getElementById('filePreview');
+        
+        // 파일 모달 이벤트 핸들러
+        const fileModalCloseBtn = fileModal.querySelector('.close-btn');
+        fileModalCloseBtn.addEventListener('click', () => utils.hideModal(fileModal));
+        
+        const saveFileBtn = document.getElementById('saveFileBtn');
+        saveFileBtn.addEventListener('click', saveFile);
+        
+        const loadFileBtn = document.getElementById('loadFileBtn');
+        loadFileBtn.addEventListener('click', loadFile);
+        
+        const deleteFileBtn = document.getElementById('deleteFileBtn');
+        deleteFileBtn.addEventListener('click', deleteFile);
+        
+        const exportSelectedBtn = document.getElementById('exportSelectedBtn');
+        exportSelectedBtn.addEventListener('click', exportSelectedFile);
+        
+        // 파일 탭 전환 이벤트
+        const fileTabs = fileModal.querySelectorAll('.file-tab');
+        fileTabs.forEach(tab => {
+            tab.addEventListener('click', () => {
+                const tabName = tab.dataset.tab;
+                
+                // 탭 스타일 변경
+                fileTabs.forEach(t => t.classList.remove('active'));
+                tab.classList.add('active');
+                
+                // 패널 전환
+                document.getElementById('save-panel').style.display = tabName === 'save' ? 'block' : 'none';
+                document.getElementById('load-panel').style.display = tabName === 'load' ? 'block' : 'none';
+                
+                // 불러오기 탭이면 파일 목록 로드
+                if (tabName === 'load') {
+                    loadFileList(true);
+                }
+            });
+        });
+        
+        // 설정 모달
+        const settingsModal = document.createElement('div');
+        settingsModal.id = 'settings-modal';
+        settingsModal.className = 'modal';
+        settingsModal.innerHTML = `
+            <div class="modal-content">
+                <div class="modal-header">
+                    <h2 class="valorant-text">설정</h2>
+                    <button class="close-btn">&times;</button>
+                </div>
+                <div class="modal-body">
+                    <div class="settings-section">
+                        <h3>브러시 설정</h3>
+                        <div class="form-group">
+                            <label for="brushSizeRange">브러시 크기: <span id="brushSizeValue">1</span></label>
+                            <input type="range" id="brushSizeRange" min="1" max="2" step="1" value="1">
+                        </div>
+                    </div>
+                    
+                    <div class="settings-section">
+                        <h3>캔버스 설정</h3>
+                        <div class="form-group">
+                            <label for="gridToggle">격자 표시</label>
+                            <label class="switch">
+                                <input type="checkbox" id="gridToggle" checked>
+                                <span class="slider"></span>
+                            </label>
+                        </div>
+                        <div class="form-group">
+                            <label for="brightnessRange">밝기: <span id="brightnessValue">100%</span></label>
+                            <input type="range" id="brightnessRange" min="50" max="150" step="10" value="100">
+                        </div>
+                    </div>
+                    
+                    <div class="settings-section">
+                        <h3>사용자 정보</h3>
+                        <div class="form-group">
+                            <label>작가명</label>
+                            <div class="static-value" id="authorDisplay"></div>
+                        </div>
+                    </div>
+                    
+                    <div class="form-actions">
+                        <button type="button" class="btn btn-accent" id="saveSettingsBtn">저장</button>
+                        <button type="button" class="btn" id="resetSettingsBtn">초기화</button>
+                    </div>
+                </div>
+            </div>
+        `;
+        document.body.appendChild(settingsModal);
+        elements.settingsModal = settingsModal;
+        elements.brushSizeRange = document.getElementById('brushSizeRange');
+        elements.brushSizeValue = document.getElementById('brushSizeValue');
+        elements.gridToggle = document.getElementById('gridToggle');
+        elements.brightnessRange = document.getElementById('brightnessRange');
+        elements.brightnessValue = document.getElementById('brightnessValue');
+        elements.authorDisplay = document.getElementById('authorDisplay');
+        
+        // 설정 모달 이벤트 핸들러
+        const settingsModalCloseBtn = settingsModal.querySelector('.close-btn');
+        settingsModalCloseBtn.addEventListener('click', () => utils.hideModal(settingsModal));
+        
+        const saveSettingsBtn = document.getElementById('saveSettingsBtn');
+        saveSettingsBtn.addEventListener('click', saveSettings);
+        
+        const resetSettingsBtn = document.getElementById('resetSettingsBtn');
+        resetSettingsBtn.addEventListener('click', resetSettings);
+        
+        // 실시간 설정 변경 이벤트
+        elements.brushSizeRange.addEventListener('input', function() {
+            updateBrushSize(parseInt(this.value, 10));
+        });
+        
+        elements.gridToggle.addEventListener('change', function() {
+            settings.showGrid = this.checked;
+            canvasRenderer.updateGridVisibility();
+        });
+        
+        elements.brightnessRange.addEventListener('input', function() {
+            const brightness = parseInt(this.value, 10);
+            settings.brightness = brightness;
+            elements.brightnessValue.textContent = `${brightness}%`;
+            canvasRenderer.updateBrightness();
+        });
+        
+        // 도움말 모달
+        const helpModal = document.createElement('div');
+        helpModal.id = 'help-modal';
+        helpModal.className = 'modal';
+        helpModal.innerHTML = `
+            <div class="modal-content">
+                <div class="modal-header">
+                    <h2 class="valorant-text">도움말</h2>
+                    <button class="close-btn">&times;</button>
+                </div>
+                <div class="modal-body">
+                    <div class="help-section">
+                        <h3>기본 조작</h3>
+                        <ul class="help-list">
+                            <li><strong>클릭 또는 드래그</strong>: 셀 그리기/지우기</li>
+                            <li><strong>Q 키</strong>: 그리기/지우기 모드 전환</li>
+                            <li><strong>+/- 키</strong>: 브러시 크기 조절</li>
+                            <li><strong>Delete 키</strong>: 캔버스 전체 지우기</li>
+                        </ul>
+                    </div>
+                    
+                    <div class="help-section">
+                        <h3>파일 관리</h3>
+                        <ul class="help-list">
+                            <li><strong>Ctrl+S</strong>: 저장</li>
+                            <li><strong>Ctrl+O</strong>: 불러오기</li>
+                            <li><strong>Ctrl+C</strong>: 복사</li>
+                            <li><strong>Ctrl+V</strong>: 붙여넣기</li>
+                        </ul>
+                    </div>
+                    
+                    <div class="help-section">
+                        <h3>기타 단축키</h3>
+                        <ul class="help-list">
+                            <li><strong>F1</strong>: 도움말 열기</li>
+                            <li><strong>F2</strong>: 설정 열기</li>
+                        </ul>
+                    </div>
+                    
+                    <div class="help-section">
+                        <h3>버전 정보</h3>
+                        <p>Valpaint v${settings.version}</p>
+                        <p>© 2025 Valpaint</p>
+                    </div>
+                </div>
+            </div>
+        `;
+        document.body.appendChild(helpModal);
+        elements.helpModal = helpModal;
+        
+        // 도움말 모달 이벤트 핸들러
+        const helpModalCloseBtn = helpModal.querySelector('.close-btn');
+        helpModalCloseBtn.addEventListener('click', () => utils.hideModal(helpModal));
+        
+        // 온라인 공유 모달
+        const shareModal = document.createElement('div');
+        shareModal.id = 'share-modal';
+        shareModal.className = 'modal share-modal';
+        shareModal.innerHTML = `
+            <div class="modal-content">
+                <div class="modal-header">
+                    <h2 class="valorant-text">온라인 공유</h2>
+                    <button class="close-btn">&times;</button>
+                </div>
+                <div class="modal-body">
+                    <div class="share-preview-container">
+                        <h3>미리보기</h3>
+                        <div class="share-preview" id="sharePreview"></div>
+                    </div>
+                    
+                    <div class="share-form">
+                        <div class="form-group">
+                            <label for="shareTitle">작품 제목</label>
+                            <input type="text" id="shareTitle" placeholder="작품 제목을 입력하세요">
+                        </div>
+                        
+                        <div class="form-group author-field">
+                            <label for="shareAuthor">작가명 (선택사항)</label>
+                            <input type="text" id="shareAuthor" placeholder="작가명을 입력하세요">
+                        </div>
+                        
+                        <div class="form-group">
+                            <label for="shareDescription">작품 설명 (선택사항)</label>
+                            <textarea id="shareDescription" placeholder="작품에 대한 설명을 입력하세요"></textarea>
+                        </div>
+                        
+                        <div class="form-group">
+                            <label class="checkbox-label">
+                                <input type="checkbox" id="sharePublic" checked>
+                                <span>공개 갤러리에 표시</span>
+                            </label>
+                        </div>
+                        
+                        <div class="form-actions">
+                            <button type="button" class="btn btn-accent" id="shareSubmitBtn">공유하기</button>
+                            <button type="button" class="btn" id="shareCancelBtn">취소</button>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        `;
+        document.body.appendChild(shareModal);
+        elements.shareModal = shareModal;
+        elements.shareTitle = document.getElementById('shareTitle');
+        elements.shareAuthor = document.getElementById('shareAuthor');
+        elements.shareDescription = document.getElementById('shareDescription');
+        elements.sharePublic = document.getElementById('sharePublic');
+        elements.sharePreview = document.getElementById('sharePreview');
+        elements.shareSubmitBtn = document.getElementById('shareSubmitBtn');
+        
+        // 온라인 공유 모달 이벤트 핸들러
+        const shareModalCloseBtn = shareModal.querySelector('.close-btn');
+        shareModalCloseBtn.addEventListener('click', () => utils.hideModal(shareModal));
+        
+        elements.shareSubmitBtn.addEventListener('click', shareArtwork);
+        
+        const shareCancelBtn = document.getElementById('shareCancelBtn');
+        shareCancelBtn.addEventListener('click', () => utils.hideModal(shareModal));
+        
+        // 온라인 갤러리 모달
+        const onlineModal = document.createElement('div');
+        onlineModal.id = 'online-modal';
+        onlineModal.className = 'modal online-modal';
+        onlineModal.innerHTML = `
+            <div class="modal-content">
+                <div class="modal-header">
+                    <h2 class="valorant-text">온라인 갤러리</h2>
+                    <button class="close-btn">&times;</button>
+                </div>
+                <div class="modal-body">
+                    <div class="online-tabs">
+                        <button class="online-tab active" data-tab="my">내 작품</button>
+                        <button class="online-tab" data-tab="public">공개 갤러리</button>
+                        <button class="online-tab" data-tab="favorites">즐겨찾기</button>
+                    </div>
+                    
+                    <div class="search-container">
+                        <input type="text" id="searchInput" placeholder="작품 검색...">
+                        <button class="btn" id="searchBtn">검색</button>
+                    </div>
+                    
+                    <div class="gallery-container">
+                        <div class="gallery-content" id="galleryContent"></div>
+                    </div>
+                </div>
+            </div>
+        `;
+        document.body.appendChild(onlineModal);
+        elements.onlineModal = onlineModal;
+        elements.searchInput = document.getElementById('searchInput');
+        elements.searchBtn = document.getElementById('searchBtn');
+        elements.galleryContent = document.getElementById('galleryContent');
+        
+        // 온라인 갤러리 모달 이벤트 핸들러
+        const onlineModalCloseBtn = onlineModal.querySelector('.close-btn');
+        onlineModalCloseBtn.addEventListener('click', () => utils.hideModal(onlineModal));
+        
+        const onlineTabs = onlineModal.querySelectorAll('.online-tab');
+        onlineTabs.forEach(tab => {
+            tab.addEventListener('click', () => {
+                const tabName = tab.dataset.tab;
+                loadGalleryItems(tabName);
+            });
+        });
+        
+        elements.searchBtn.addEventListener('click', () => {
+            const activeTab = onlineModal.querySelector('.online-tab.active');
+            if (activeTab) {
+                loadGalleryItems(activeTab.dataset.tab);
+            }
+        });
+        
+        elements.searchInput.addEventListener('keyup', (e) => {
+            if (e.key === 'Enter') {
+                elements.searchBtn.click();
+            }
+        });
+        
+        // 작품 상세 모달
+        const artworkDetailModal = document.createElement('div');
+        artworkDetailModal.id = 'artwork-detail-modal';
+        artworkDetailModal.className = 'modal';
+        artworkDetailModal.innerHTML = `
+            <div class="modal-content">
+                <div class="modal-header">
+                    <h2 class="valorant-text" id="artworkTitle">작품 제목</h2>
+                    <button class="close-btn">&times;</button>
+                </div>
+                <div class="modal-body">
+                    <div class="artwork-preview-container">
+                        <div class="artwork-preview" id="artworkPreview"></div>
+                    </div>
+                    
+                    <div class="artwork-info">
+                        <div class="info-group">
+                            <label>작가</label>
+                            <div id="artworkCreator" class="info-value">작가명</div>
+                        </div>
+                        
+                        <div class="info-group">
+                            <label>등록일</label>
+                            <div id="artworkDate" class="info-value">2025.04.12</div>
+                        </div>
+                        
+                        <div class="info-group">
+                            <label>조회수</label>
+                            <div id="artworkViews" class="info-value">0 회</div>
+                        </div>
+                        
+                        <div class="info-group">
+                            <label>태그</label>
+                            <div id="artworkTags" class="info-value">태그 없음</div>
+                        </div>
+                        
+                        <div class="info-group description">
+                            <label>설명</label>
+                            <div id="artworkDesc" class="info-value">설명 없음</div>
+                        </div>
+                    </div>
+                    
+                    <div class="artwork-actions">
+                        <button class="btn" id="favoriteArtworkBtn">
+                            <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                                <path d="M20.84 4.61a5.5 5.5 0 0 0-7.78 0L12 5.67l-1.06-1.06a5.5 5.5 0 0 0-7.78 7.78l1.06 1.06L12 21.23l7.78-7.78 1.06-1.06a5.5 5.5 0 0 0 0-7.78z"></path>
+                            </svg>
+                            즐겨찾기
+                        </button>
+                        <button class="btn" id="downloadArtworkBtn">
+                            <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                                <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"></path>
+                                <polyline points="7 10 12 15 17 10"></polyline>
+                                <line x1="12" y1="15" x2="12" y2="3"></line>
+                            </svg>
+                            다운로드
+                        </button>
+                        <button class="btn btn-accent" id="loadArtworkBtn">
+                            <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                                <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"></path>
+                                <polyline points="17 8 12 3 7 8"></polyline>
+                                <line x1="12" y1="3" x2="12" y2="15"></line>
+                            </svg>
+                            불러오기
+                        </button>
+                    </div>
+                </div>
+            </div>
+        `;
+        document.body.appendChild(artworkDetailModal);
+        elements.artworkDetailModal = artworkDetailModal;
+        elements.artworkTitle = document.getElementById('artworkTitle');
+        elements.artworkPreview = document.getElementById('artworkPreview');
+        elements.artworkCreator = document.getElementById('artworkCreator');
+        elements.artworkDate = document.getElementById('artworkDate');
+        elements.artworkViews = document.getElementById('artworkViews');
+        elements.artworkTags = document.getElementById('artworkTags');
+        elements.artworkDesc = document.getElementById('artworkDesc');
+        elements.favoriteArtworkBtn = document.getElementById('favoriteArtworkBtn');
+        elements.downloadArtworkBtn = document.getElementById('downloadArtworkBtn');
+        elements.loadArtworkBtn = document.getElementById('loadArtworkBtn');
+        
+        // 작품 상세 모달 이벤트 핸들러
+        const artworkDetailModalCloseBtn = artworkDetailModal.querySelector('.close-btn');
+        artworkDetailModalCloseBtn.addEventListener('click', () => utils.hideModal(artworkDetailModal));
+        
+        // VAL 파일 모달 생성
+        createExportImportModal();
+    }
+    </script>
+</body>
+</html>
