@@ -4756,6 +4756,207 @@
         elements.brightnessValue.textContent = `${settings.brightness}%`;
         elements.authorDisplay.textContent = api.getUsername();
     }
+
+    // VAL 파일 버튼 추가 함수
+    function addVALFileButtons() {
+        const toolbarContainer = document.querySelector('.toolbar');
+        
+        if (!toolbarContainer) return;
+        
+        const valBtnGroup = document.createElement('div');
+        valBtnGroup.className = 'tool-group';
+        
+        const exportBtn = document.createElement('button');
+        exportBtn.className = 'btn';
+        exportBtn.innerHTML = '<span class="valorant-text">VAL 내보내기</span>';
+        exportBtn.addEventListener('click', function() {
+            elements.exportFileName.value = elements.fileNameInput.value || 'valpaint_export_' + new Date().toISOString().slice(0, 10);
+            elements.exportImportModal.querySelector('h2').textContent = 'VAL 파일 내보내기';
+            elements.exportFileForm.style.display = 'block';
+            elements.importFileForm.style.display = 'none';
+            utils.showModal(elements.exportImportModal);
+        });
+        
+        const importBtn = document.createElement('button');
+        importBtn.className = 'btn';
+        importBtn.innerHTML = '<span class="valorant-text">VAL 가져오기</span>';
+        importBtn.addEventListener('click', function() {
+            elements.exportImportModal.querySelector('h2').textContent = 'VAL 파일 가져오기';
+            elements.exportFileForm.style.display = 'none';
+            elements.importFileForm.style.display = 'block';
+            document.getElementById('fileInput').value = ''; // 파일 입력 초기화
+            utils.showModal(elements.exportImportModal);
+        });
+        
+        valBtnGroup.appendChild(exportBtn);
+        valBtnGroup.appendChild(importBtn);
+        
+        // 툴바의 적절한 위치에 삽입
+        const lastGroup = toolbarContainer.querySelector('.tool-group:last-child');
+        if (lastGroup) {
+            toolbarContainer.insertBefore(valBtnGroup, lastGroup.nextSibling);
+        } else {
+            toolbarContainer.appendChild(valBtnGroup);
+        }
+    }
+
+    // VAL 파일 관련 모달 추가
+    function createExportImportModal() {
+        // 이미 존재하는지 확인
+        if (document.getElementById('exportImportModal')) return;
+        
+        const modal = document.createElement('div');
+        modal.id = 'exportImportModal';
+        modal.className = 'modal';
+        
+        modal.innerHTML = `
+            <div class="modal-content">
+                <div class="modal-header">
+                    <h2 class="valorant-text">VAL 파일 내보내기</h2>
+                    <button class="close-btn">&times;</button>
+                </div>
+                <div class="modal-body">
+                    <form id="exportFileForm">
+                        <div class="form-group">
+                            <label for="exportFileName">파일 이름</label>
+                            <input type="text" id="exportFileName" placeholder="파일 이름을 입력하세요">
+                        </div>
+                        <div class="form-actions">
+                            <button type="button" class="btn btn-accent" id="exportFileBtn">내보내기</button>
+                            <button type="button" class="btn" id="cancelExportBtn">취소</button>
+                        </div>
+                    </form>
+                    
+                    <form id="importFileForm" style="display: none;">
+                        <div class="form-group">
+                            <label for="fileInput">VAL 파일 선택</label>
+                            <input type="file" id="fileInput" accept=".val">
+                        </div>
+                        <div class="form-actions">
+                            <button type="button" class="btn btn-accent" id="importFileBtn">가져오기</button>
+                            <button type="button" class="btn" id="cancelImportBtn">취소</button>
+                        </div>
+                    </form>
+                </div>
+            </div>
+        `;
+        
+        document.body.appendChild(modal);
+        elements.exportImportModal = modal;
+        elements.exportFileName = document.getElementById('exportFileName');
+        elements.exportFileForm = document.getElementById('exportFileForm');
+        elements.importFileForm = document.getElementById('importFileForm');
+        
+        // 이벤트 핸들러
+        const closeBtn = modal.querySelector('.close-btn');
+        closeBtn.addEventListener('click', () => utils.hideModal(modal));
+        
+        const exportFileBtn = document.getElementById('exportFileBtn');
+        exportFileBtn.addEventListener('click', exportFile);
+        
+        const cancelExportBtn = document.getElementById('cancelExportBtn');
+        cancelExportBtn.addEventListener('click', () => utils.hideModal(modal));
+        
+        const importFileBtn = document.getElementById('importFileBtn');
+        importFileBtn.addEventListener('click', importFile);
+        
+        const cancelImportBtn = document.getElementById('cancelImportBtn');
+        cancelImportBtn.addEventListener('click', () => utils.hideModal(modal));
+    }
+    
+    // 파일 내보내기 실행
+    function exportFile() {
+        const filename = elements.exportFileName.value.trim();
+        
+        if (!filename) {
+            utils.showToast('내보낼 파일 이름을 입력해주세요', 'error');
+            return;
+        }
+        
+        // 현재 캔버스 데이터 가져오기
+        const data = canvasRenderer.exportCanvasData();
+        
+        // 작성자 정보 추가
+        data.author = settings.author || api.getUsername();
+        data.version = settings.version;
+        data.timestamp = new Date().toISOString();
+        
+        try {
+            // JSON 데이터를 Blob으로 변환
+            const jsonData = JSON.stringify(data, null, 2);
+            const blob = new Blob([jsonData], { type: 'application/json' });
+            const url = URL.createObjectURL(blob);
+            
+            // 다운로드 링크 생성 및 클릭
+            const a = document.createElement('a');
+            a.href = url;
+            a.download = `${filename}.val`;
+            document.body.appendChild(a);
+            a.click();
+            document.body.removeChild(a);
+            
+            // URL 객체 해제
+            URL.revokeObjectURL(url);
+            
+            utils.showToast(`${filename}.val 파일이 다운로드되었습니다`, 'success');
+            utils.hideModal(elements.exportImportModal);
+        } catch (error) {
+            console.error('파일 내보내기 오류:', error);
+            utils.showToast('파일 내보내기 중 오류가 발생했습니다', 'error');
+        }
+    }
+    
+    // 파일 가져오기 실행
+    function importFile() {
+        const fileInput = document.getElementById('fileInput');
+        const file = fileInput.files[0];
+        
+        if (!file) {
+            utils.showToast('가져올 파일을 선택해주세요', 'error');
+            return;
+        }
+        
+        // .val 확장자 체크
+        if (!file.name.toLowerCase().endsWith('.val')) {
+            utils.showToast('VAL 형식의 파일만 가져올 수 있습니다', 'error');
+            return;
+        }
+        
+        const reader = new FileReader();
+        
+        reader.onload = function(e) {
+            try {
+                const data = JSON.parse(e.target.result);
+                
+                // 유효한 VAL 파일인지 확인
+                if (!data.board || !data.settings) {
+                    utils.showToast('유효하지 않은 VAL 파일입니다', 'error');
+                    return;
+                }
+                
+                // 캔버스에 불러오기
+                if (canvasRenderer.importCanvasData(data)) {
+                    utils.showToast(`${file.name} 파일을 불러왔습니다`, 'success');
+                    utils.hideModal(elements.exportImportModal);
+                    
+                    // 파일 이름으로 저장 (확장자 제외)
+                    const baseName = file.name.replace(/\.val$/i, '');
+                    elements.fileNameInput.value = baseName;
+                } else {
+                    utils.showToast('파일을 불러오는 데 실패했습니다', 'error');
+                }
+            } catch (error) {
+                console.error('파일 가져오기 오류:', error);
+                utils.showToast('파일 가져오기 중 오류가 발생했습니다. 파일이 손상되었거나 유효하지 않은 형식입니다.', 'error');
+            }
+        };
+        
+        reader.onerror = function() {
+            utils.showToast('파일을 읽는 중 오류가 발생했습니다', 'error');
+        };
+        
+        reader.readAsText(file);
+    }
     </script>
 </body>
 </html>
