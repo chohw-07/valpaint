@@ -2383,125 +2383,118 @@
     // 복사 기능
     function copyCanvas() {
         try {
-            // 현재 캔버스 데이터 가져오기
-            const data = canvasRenderer.exportCanvasData();
+            // 캔버스 데이터 가져오기
+            const canvasData = canvasRenderer.exportCanvasData();
+            const jsonData = JSON.stringify(canvasData);
             
-            // 클립보드 버퍼에 저장
-            appState.clipboardBuffer = JSON.stringify(data);
-            
-            // 시스템 클립보드에 복사 시도
-            // 이모지 모드: 텍스트 형태로 복사
-            const emojiText = data.board.map(row => 
-                row.map(cell => {
-                    if (cell === '■') return settings.customMode ? settings.filledEmoji : '■';
-                    return settings.bgMode === 'transparent' ? settings.transparentChar : (settings.customMode ? settings.emptyEmoji : '□');
-                }).join('')
-            ).join('\n');
-            
-            try {
-                navigator.clipboard.writeText(emojiText).then(() => {
-                    utils.showToast('이모지 데이터가 클립보드에 복사되었습니다', 'success');
-                }).catch(err => {
-                    console.error('클립보드 복사 오류:', err);
-                    utils.showToast('클립보드 접근 권한이 없습니다', 'error');
-                });
-            } catch (err) {
-                console.error('클립보드 API 사용 불가:', err);
-                // 폴백: 텍스트 영역 사용
-                const textArea = document.createElement('textarea');
-                textArea.value = emojiText;
-                document.body.appendChild(textArea);
-                textArea.select();
-                document.execCommand('copy');
-                document.body.removeChild(textArea);
-                utils.showToast('이모지 데이터가 클립보드에 복사되었습니다', 'success');
+            // 클립보드 API 사용 가능 여부 확인
+            if (navigator.clipboard && navigator.clipboard.writeText) {
+                navigator.clipboard.writeText(jsonData)
+                    .then(() => {
+                        utils.showToast('캔버스가 클립보드에 복사되었습니다', 'success');
+                    })
+                    .catch(error => {
+                        console.error('클립보드 API 오류:', error);
+                        fallbackCopy(jsonData);
+                    });
+            } else {
+                console.log('클립보드 API 사용 불가: navigator.clipboard를 지원하지 않습니다');
+                fallbackCopy(jsonData);
             }
-        } catch (err) {
-            console.error('복사 오류:', err);
+        } catch (error) {
+            console.error('복사 오류:', error);
             utils.showToast('복사 중 오류가 발생했습니다', 'error');
         }
     }
 
-    // 붙여넣기 기능
-    function pasteCanvas() {
+    // 대체 복사 방법
+    function fallbackCopy(text) {
+        const textArea = document.createElement('textarea');
+        textArea.value = text;
+        
+        // 임시 텍스트 영역 스타일 설정
+        textArea.style.position = 'fixed';
+        textArea.style.top = '-9999px';
+        textArea.style.left = '-9999px';
+        
+        document.body.appendChild(textArea);
+        textArea.select();
+        
+        let success = false;
         try {
-            // 클립보드 API 사용 시도
-            navigator.clipboard.readText().then(text => {
-                processClipboardText(text);
-            }).catch(err => {
-                console.error('클립보드 접근 오류:', err);
-                utils.showToast('클립보드 접근 권한이 없습니다', 'error');
-                
-                // 내부 클립보드 버퍼 사용 시도
-                if (appState.clipboardBuffer) {
-                    try {
-                        const data = JSON.parse(appState.clipboardBuffer);
-                        if (canvasRenderer.importCanvasData(data)) {
-                            utils.showToast('내부 클립보드 데이터를 붙여넣었습니다', 'success');
-                        }
-                    } catch (e) {
-                        console.error('내부 버퍼 파싱 오류:', e);
-                        utils.showToast('클립보드 데이터 처리 중 오류가 발생했습니다', 'error');
-                    }
-                }
-            });
-        } catch (err) {
-            console.error('붙여넣기 오류:', err);
-            utils.showToast('붙여넣기 중 오류가 발생했습니다', 'error');
+            success = document.execCommand('copy');
+            if (success) {
+                utils.showToast('캔버스가 클립보드에 복사되었습니다', 'success');
+            } else {
+                utils.showToast('클립보드에 복사할 수 없습니다. 브라우저 설정을 확인하세요', 'error');
+            }
+        } catch (error) {
+            console.error('execCommand 복사 실패:', error);
+            utils.showToast('클립보드 복사가 지원되지 않습니다', 'error');
         }
+        
+        document.body.removeChild(textArea);
     }
 
-    // 클립보드 텍스트 처리
-    function processClipboardText(text) {
-        if (!text || text.trim() === '') {
-            utils.showToast('클립보드에 텍스트가 없습니다', 'error');
-            return;
-        }
-        
-        // JSON 데이터인지 확인
+    // 붙여넣기 함수 수정
+    function pasteCanvas() {
         try {
-            const data = JSON.parse(text);
-            if (data.board) {
-                if (canvasRenderer.importCanvasData(data)) {
-                    utils.showToast('클립보드 데이터를 붙여넣었습니다', 'success');
-                    return;
+            // 클립보드 API 사용 가능 여부 확인
+            if (navigator.clipboard && navigator.clipboard.readText) {
+                navigator.clipboard.readText()
+                    .then(text => {
+                        try {
+                            const data = JSON.parse(text);
+                            
+                            // 유효한 Valpaint 데이터인지 확인
+                            if (data.board && data.settings) {
+                                if (canvasRenderer.importCanvasData(data)) {
+                                    utils.showToast('캔버스를 붙여넣었습니다', 'success');
+                                } else {
+                                    utils.showToast('유효하지 않은 캔버스 데이터입니다', 'error');
+                                }
+                            } else {
+                                utils.showToast('클립보드에 유효한 캔버스 데이터가 없습니다', 'error');
+                            }
+                        } catch (parseError) {
+                            console.error('JSON 파싱 오류:', parseError);
+                            utils.showToast('클립보드의 데이터를 붙여넣을 수 없습니다', 'error');
+                        }
+                    })
+                    .catch(error => {
+                        console.error('클립보드 읽기 오류:', error);
+                        utils.showToast('클립보드에서 읽을 수 없습니다. 보안 설정을 확인하세요', 'error');
+                    });
+            } else {
+                console.log('클립보드 API 사용 불가: navigator.clipboard를 지원하지 않습니다');
+                utils.showToast('이 브라우저는 클립보드 읽기를 지원하지 않습니다', 'warning');
+                
+                // 대체 붙여넣기 방법: 수동 입력 요청
+                const pasteText = prompt('캔버스 데이터를 직접 입력하세요');
+                if (pasteText) {
+                    try {
+                        const data = JSON.parse(pasteText);
+                        
+                        // 유효한 Valpaint 데이터인지 확인
+                        if (data.board && data.settings) {
+                            if (canvasRenderer.importCanvasData(data)) {
+                                utils.showToast('캔버스를 붙여넣었습니다', 'success');
+                            } else {
+                                utils.showToast('유효하지 않은 캔버스 데이터입니다', 'error');
+                            }
+                        } else {
+                            utils.showToast('입력된 데이터가 유효한 캔버스 데이터가 아닙니다', 'error');
+                        }
+                    } catch (parseError) {
+                        console.error('JSON 파싱 오류:', parseError);
+                        utils.showToast('입력된 데이터를 붙여넣을 수 없습니다', 'error');
+                    }
                 }
             }
-        } catch (e) {
-            // JSON이 아니면 계속 진행
+        } catch (error) {
+            console.error('붙여넣기 오류:', error);
+            utils.showToast('붙여넣기 중 오류가 발생했습니다', 'error');
         }
-        
-        // 일반 텍스트 처리
-        const lines = text.trim().split('\n');
-        const rows = lines.length;
-        const cols = Math.max(...lines.map(line => line.length));
-        
-        // 데이터가 현재 캔버스 크기를 초과하는지 확인
-        if (rows > settings.emojiRows || cols > settings.emojiCols) {
-            utils.showToast(`텍스트가 캔버스 크기(${settings.emojiRows}x${settings.emojiCols})를 초과합니다`, 'error');
-            return;
-        }
-        
-        // 빈 데이터 생성
-        const newData = Array(settings.emojiRows).fill().map(() => Array(settings.emojiCols).fill(''));
-        
-        // 텍스트를 이모지 데이터로 변환
-        for (let r = 0; r < rows; r++) {
-            const line = lines[r];
-            for (let c = 0; c < line.length; c++) {
-                const char = line[c];
-                if (char === '■' || char === settings.filledEmoji) {
-                    newData[r][c] = '■';
-                }
-            }
-        }
-        
-        // 데이터 업데이트
-        canvasData = newData;
-        
-        // 캔버스 다시 그리기
-        canvasRenderer.initCanvas();
-        utils.showToast('텍스트를 붙여넣었습니다', 'success');
     }
 
     // 설정 변경 적용
@@ -2588,76 +2581,141 @@
 
     // 온라인 공유 모달
     function openShareModal() {
-        // 미리보기 표시
-        elements.sharePreview.innerHTML = canvasRenderer.generatePreview();
+        // 현재 캔버스 데이터 가져오기
+        const canvasData = canvasRenderer.exportCanvasData();
         
-        // 입력 필드 초기화
-        elements.shareTitleInput.value = '';
-        elements.shareTagsInput.value = '';
-        elements.shareDescInput.value = '';
+        // 필드 초기화
+        elements.shareTitle.value = '';
+        elements.shareDescription.value = '';
+        elements.sharePublic.checked = true;
         
-        // 간단한 오프라인 모드로 동작
+        // 작가명 필드 숨기기 & 고정값 사용
+        const authorNameField = document.querySelector('.form-group.author-field');
+        if (authorNameField) {
+            authorNameField.style.display = 'none';
+        }
+        
+        // 고정된 작가명 표시 추가
+        let authorDisplayField = document.getElementById('shareAuthorDisplay');
+        if (!authorDisplayField) {
+            authorDisplayField = document.createElement('div');
+            authorDisplayField.id = 'shareAuthorDisplay';
+            authorDisplayField.className = 'form-group';
+            
+            const label = document.createElement('label');
+            label.textContent = '작가명';
+            
+            const value = document.createElement('div');
+            value.className = 'static-value';
+            value.textContent = api.getUsername();
+            value.style.padding = '8px 12px';
+            value.style.background = 'var(--secondary-bg)';
+            value.style.border = '1px solid var(--border-color)';
+            value.style.borderRadius = '4px';
+            
+            authorDisplayField.appendChild(label);
+            authorDisplayField.appendChild(value);
+            
+            // 적절한 위치에 삽입
+            const shareForm = document.querySelector('.share-form');
+            const firstFormGroup = shareForm ? shareForm.querySelector('.form-group') : null;
+            
+            if (firstFormGroup && firstFormGroup.parentNode) {
+                firstFormGroup.parentNode.insertBefore(authorDisplayField, firstFormGroup.nextSibling);
+            }
+        } else {
+            // 이미 존재하면 텍스트만 업데이트
+            const valueElement = authorDisplayField.querySelector('.static-value');
+            if (valueElement) {
+                valueElement.textContent = api.getUsername();
+            }
+        }
+        
+        // 미리보기 생성
+        try {
+            const previewContainer = elements.sharePreview;
+            if (previewContainer) {
+                previewContainer.innerHTML = '';
+                
+                const previewContent = document.createElement('div');
+                previewContent.style.fontFamily = 'monospace';
+                previewContent.style.lineHeight = '1';
+                previewContent.style.fontSize = '10px';
+                previewContent.style.whiteSpace = 'pre';
+                
+                const board = canvasData.board;
+                const maxRows = Math.min(board.length, 15); // 미리보기 제한
+                
+                let content = '';
+                for (let r = 0; r < maxRows; r++) {
+                    let rowText = '';
+                    const maxCols = Math.min(board[r].length, 30); // 미리보기 제한
+                    
+                    for (let c = 0; c < maxCols; c++) {
+                        if (board[r][c] === '■') {
+                            rowText += '■';
+                        } else {
+                            rowText += '□';
+                        }
+                    }
+                    content += rowText + '\n';
+                }
+                
+                previewContent.textContent = content;
+                previewContainer.appendChild(previewContent);
+            }
+        } catch (error) {
+            console.error('미리보기 생성 오류:', error);
+            if (elements.sharePreview) {
+                elements.sharePreview.textContent = '미리보기를 표시할 수 없습니다';
+            }
+        }
+        
         utils.showModal(elements.shareModal);
     }
 
-    // 작품 공유하기 (오프라인 모드에서는 파일로 내보내기)
-    function shareArtwork() {
-        const title = elements.shareTitleInput.value.trim();
+    // 작품 공유 실행
+    async function shareArtwork() {
+        const title = elements.shareTitle.value.trim();
+        const description = elements.shareDescription.value.trim();
+        const isPublic = elements.sharePublic.checked;
+        
         if (!title) {
             utils.showToast('작품 제목을 입력해주세요', 'error');
             return;
         }
         
-        // 공유 데이터 준비
-        const data = canvasRenderer.exportCanvasData();
-        const username = appState.userName || 'Guest'; // 저장된 사용자 이름 가져오기
-        const tags = elements.shareTagsInput.value.trim().split(',').map(tag => tag.trim()).filter(tag => tag);
-        const description = elements.shareDescInput.value.trim();
-        
-        // 추가 정보 넣기
-        data.author = settings.author;
-        data.creator = username;
-        data.title = title;
-        data.tags = tags;
-        data.description = description;
-        data.timestamp = new Date().toISOString();
-        data.version = settings.version;
-        
-        // 스피너 표시
-        elements.shareActionBtn.innerHTML = '<span class="spinner" style="width: 16px; height: 16px;"></span> 내보내기 중...';
-        elements.shareActionBtn.disabled = true;
+        // 로딩 상태 표시
+        const shareBtn = elements.shareSubmitBtn;
+        const originalText = shareBtn.textContent;
+        shareBtn.disabled = true;
+        shareBtn.innerHTML = '<div class="spinner-small"></div> 공유 중...';
         
         try {
-            // 오프라인 모드에서는 파일로 내보내기
-            const jsonData = JSON.stringify(data, null, 2);
-            const blob = new Blob([jsonData], { type: 'application/json' });
-            const url = URL.createObjectURL(blob);
+            // 캔버스 데이터 가져오기
+            const canvasData = canvasRenderer.exportCanvasData();
             
-            // 다운로드 링크 생성 및 클릭
-            const a = document.createElement('a');
-            a.href = url;
-            a.download = `${title}.val`;
-            document.body.appendChild(a);
-            a.click();
-            document.body.removeChild(a);
+            // 작가명은 고정된 값 사용
+            const result = await api.shareArtwork(title, description, isPublic, canvasData);
             
-            // URL 객체 해제
-            URL.revokeObjectURL(url);
-            
-            utils.showToast(`${title}.val 파일로 작품이 내보내졌습니다`, 'success');
-            utils.hideModal(elements.shareModal);
-            
-            // 로컬 스토리지에도 저장
-            utils.storage.saveFile(`${title}.val`, data);
-            
+            if (result && result.success) {
+                utils.showToast('작품이 성공적으로 공유되었습니다', 'success');
+                utils.hideModal(elements.shareModal);
+                
+                // 갤러리가 열려있다면 새로고침
+                if (elements.onlineModal.classList.contains('show')) {
+                    loadGalleryItems('my');
+                }
+            } else {
+                throw new Error('작품 공유에 실패했습니다');
+            }
         } catch (error) {
             console.error('작품 공유 오류:', error);
-            utils.showToast('작품 공유 중 오류가 발생했습니다', 'error');
+            utils.showToast('작품 공유 중 오류가 발생했습니다: ' + (error.message || '알 수 없는 오류'), 'error');
         } finally {
-            // 공유 모달 버튼 스타일
-            elements.shareActionBtn.innerHTML = '<span class="valorant-text">공유하기</span>';
-            elements.shareModalCancelBtn.innerHTML = '<span class="valorant-text">취소</span>';
-            elements.shareActionBtn.disabled = false;
+            // 버튼 상태 복원
+            shareBtn.disabled = false;
+            shareBtn.textContent = originalText;
         }
     }
 
@@ -3103,14 +3161,13 @@
     const api = {
         // JsonBlob.com API 관련 설정
         JSONBLOB_API_URL: 'https://jsonblob.com/api/jsonBlob',
-        USER_DATA_BLOB_ID: '1234567890123456789012345', // 이 ID를 실제 생성한 JsonBlob ID로 변경해야 함
-        PUBLIC_GALLERY_BLOB_ID: '1234567890123456789012346', // 이 ID를 실제 생성한 JsonBlob ID로 변경해야 함
         
         // 스토리지 키
         STORAGE_KEYS: {
             USERNAME: 'valpaint_username',
             FAVORITES: 'valpaint_favorites',
-            USER_BLOB_ID: 'valpaint_user_blob_id'
+            USER_BLOB_ID: 'valpaint_user_blob_id',
+            PUBLIC_BLOB_ID: 'valpaint_public_blob_id'
         },
         
         // 초기화
@@ -3126,18 +3183,21 @@
                 // 사용자 블롭 ID 가져오기 또는 생성
                 const userBlobId = localStorage.getItem(this.STORAGE_KEYS.USER_BLOB_ID);
                 if (!userBlobId) {
-                    // 새 사용자 데이터 블롭 생성
                     try {
+                        console.log('사용자 블롭 생성 중...');
+                        // 새 사용자 데이터 블롭 생성
+                        const initialData = {
+                            artworks: [],
+                            lastUpdated: new Date().toISOString()
+                        };
+                        
                         const response = await fetch(this.JSONBLOB_API_URL, {
                             method: 'POST',
                             headers: {
                                 'Content-Type': 'application/json',
                                 'Accept': 'application/json'
                             },
-                            body: JSON.stringify({
-                                artworks: [],
-                                lastUpdated: new Date().toISOString()
-                            })
+                            body: JSON.stringify(initialData)
                         });
                         
                         if (response.ok) {
@@ -3145,9 +3205,46 @@
                             const location = response.headers.get('Location');
                             const newBlobId = location.split('/').pop();
                             localStorage.setItem(this.STORAGE_KEYS.USER_BLOB_ID, newBlobId);
+                            console.log('새 사용자 블롭 생성됨:', newBlobId);
+                        } else {
+                            console.error('사용자 블롭 생성 실패:', response.status);
                         }
                     } catch (error) {
                         console.error('사용자 블롭 생성 오류:', error);
+                    }
+                }
+                
+                // 공용 갤러리 블롭 가져오기 또는 생성
+                const publicBlobId = localStorage.getItem(this.STORAGE_KEYS.PUBLIC_BLOB_ID);
+                if (!publicBlobId) {
+                    try {
+                        console.log('공용 갤러리 블롭 생성 중...');
+                        // 새 공용 갤러리 블롭 생성
+                        const initialData = {
+                            artworks: [],
+                            lastUpdated: new Date().toISOString()
+                        };
+                        
+                        const response = await fetch(this.JSONBLOB_API_URL, {
+                            method: 'POST',
+                            headers: {
+                                'Content-Type': 'application/json',
+                                'Accept': 'application/json'
+                            },
+                            body: JSON.stringify(initialData)
+                        });
+                        
+                        if (response.ok) {
+                            // 새로 생성된 블롭 ID 저장
+                            const location = response.headers.get('Location');
+                            const newBlobId = location.split('/').pop();
+                            localStorage.setItem(this.STORAGE_KEYS.PUBLIC_BLOB_ID, newBlobId);
+                            console.log('새 공용 갤러리 블롭 생성됨:', newBlobId);
+                        } else {
+                            console.error('공용 갤러리 블롭 생성 실패:', response.status);
+                        }
+                    } catch (error) {
+                        console.error('공용 갤러리 블롭 생성 오류:', error);
                     }
                 }
                 
@@ -3206,20 +3303,76 @@
             try {
                 // 1. 사용자 블롭 ID 가져오기
                 const userBlobId = localStorage.getItem(this.STORAGE_KEYS.USER_BLOB_ID);
+                let userData;
+                
                 if (!userBlobId) {
-                    throw new Error('사용자 데이터를 찾을 수 없습니다.');
+                    // 사용자 블롭이 없으면 새로 생성
+                    userData = {
+                        artworks: [],
+                        lastUpdated: new Date().toISOString()
+                    };
+                    
+                    try {
+                        const response = await fetch(this.JSONBLOB_API_URL, {
+                            method: 'POST',
+                            headers: {
+                                'Content-Type': 'application/json',
+                                'Accept': 'application/json'
+                            },
+                            body: JSON.stringify(userData)
+                        });
+                        
+                        if (response.ok) {
+                            const location = response.headers.get('Location');
+                            const newBlobId = location.split('/').pop();
+                            localStorage.setItem(this.STORAGE_KEYS.USER_BLOB_ID, newBlobId);
+                            console.log('새 사용자 블롭 생성됨:', newBlobId);
+                        } else {
+                            throw new Error('사용자 블롭 생성 실패');
+                        }
+                    } catch (error) {
+                        console.error('사용자 블롭 생성 오류:', error);
+                        throw new Error('사용자 데이터를 저장할 수 없습니다.');
+                    }
+                } else {
+                    // 기존 사용자 블롭 가져오기
+                    try {
+                        const response = await fetch(`${this.JSONBLOB_API_URL}/${userBlobId}`);
+                        if (response.ok) {
+                            userData = await response.json();
+                        } else {
+                            // 기존 블롭을 가져올 수 없으면 새로 생성
+                            userData = {
+                                artworks: [],
+                                lastUpdated: new Date().toISOString()
+                            };
+                            
+                            const newResponse = await fetch(this.JSONBLOB_API_URL, {
+                                method: 'POST',
+                                headers: {
+                                    'Content-Type': 'application/json',
+                                    'Accept': 'application/json'
+                                },
+                                body: JSON.stringify(userData)
+                            });
+                            
+                            if (newResponse.ok) {
+                                const location = newResponse.headers.get('Location');
+                                const newBlobId = location.split('/').pop();
+                                localStorage.setItem(this.STORAGE_KEYS.USER_BLOB_ID, newBlobId);
+                                console.log('새 사용자 블롭 생성됨:', newBlobId);
+                            } else {
+                                throw new Error('사용자 블롭 재생성 실패');
+                            }
+                        }
+                    } catch (error) {
+                        console.error('사용자 데이터 가져오기 오류:', error);
+                        throw new Error('사용자 데이터를 가져오는데 실패했습니다.');
+                    }
                 }
-                
-                // 2. 현재 사용자 데이터 가져오기
-                const response = await fetch(`${this.JSONBLOB_API_URL}/${userBlobId}`);
-                if (!response.ok) {
-                    throw new Error('사용자 데이터를 가져오는데 실패했습니다.');
-                }
-                
-                const userData = await response.json();
                 
                 // 3. 새 작품 추가
-                const artworkId = crypto.randomUUID ? crypto.randomUUID() : Date.now().toString();
+                const artworkId = Date.now().toString();
                 const artwork = {
                     id: artworkId,
                     title: title,
@@ -3231,51 +3384,125 @@
                     data: data
                 };
                 
+                if (!userData.artworks) {
+                    userData.artworks = [];
+                }
+                
                 userData.artworks.push(artwork);
                 userData.lastUpdated = new Date().toISOString();
                 
                 // 4. 업데이트된 데이터 저장
-                const updateResponse = await fetch(`${this.JSONBLOB_API_URL}/${userBlobId}`, {
-                    method: 'PUT',
-                    headers: {
-                        'Content-Type': 'application/json',
-                        'Accept': 'application/json'
-                    },
-                    body: JSON.stringify(userData)
-                });
-                
-                if (!updateResponse.ok) {
-                    throw new Error('작품 저장에 실패했습니다.');
+                const currentUserBlobId = localStorage.getItem(this.STORAGE_KEYS.USER_BLOB_ID);
+                try {
+                    const updateResponse = await fetch(`${this.JSONBLOB_API_URL}/${currentUserBlobId}`, {
+                        method: 'PUT',
+                        headers: {
+                            'Content-Type': 'application/json',
+                            'Accept': 'application/json'
+                        },
+                        body: JSON.stringify(userData)
+                    });
+                    
+                    if (!updateResponse.ok) {
+                        throw new Error('작품 저장에 실패했습니다.');
+                    }
+                } catch (error) {
+                    console.error('작품 저장 오류:', error);
+                    throw new Error('작품을 저장하는데 실패했습니다.');
                 }
                 
                 // 5. 공개 작품인 경우 공용 갤러리에도 추가
                 if (isPublic) {
                     try {
-                        const publicResponse = await fetch(`${this.JSONBLOB_API_URL}/${this.PUBLIC_GALLERY_BLOB_ID}`);
-                        if (publicResponse.ok) {
-                            const publicData = await publicResponse.json();
-                            publicData.artworks.push(artwork);
-                            publicData.lastUpdated = new Date().toISOString();
+                        const publicBlobId = localStorage.getItem(this.STORAGE_KEYS.PUBLIC_BLOB_ID);
+                        let publicData;
+                        
+                        if (!publicBlobId) {
+                            // 공용 갤러리 블롭이 없으면 새로 생성
+                            publicData = {
+                                artworks: [artwork],
+                                lastUpdated: new Date().toISOString()
+                            };
                             
-                            await fetch(`${this.JSONBLOB_API_URL}/${this.PUBLIC_GALLERY_BLOB_ID}`, {
-                                method: 'PUT',
+                            const response = await fetch(this.JSONBLOB_API_URL, {
+                                method: 'POST',
                                 headers: {
                                     'Content-Type': 'application/json',
                                     'Accept': 'application/json'
                                 },
                                 body: JSON.stringify(publicData)
                             });
+                            
+                            if (response.ok) {
+                                const location = response.headers.get('Location');
+                                const newBlobId = location.split('/').pop();
+                                localStorage.setItem(this.STORAGE_KEYS.PUBLIC_BLOB_ID, newBlobId);
+                                console.log('새 공용 갤러리 블롭 생성됨:', newBlobId);
+                            }
+                        } else {
+                            // 기존 공용 갤러리 블롭 가져오기
+                            try {
+                                const response = await fetch(`${this.JSONBLOB_API_URL}/${publicBlobId}`);
+                                if (response.ok) {
+                                    publicData = await response.json();
+                                    
+                                    if (!publicData.artworks) {
+                                        publicData.artworks = [];
+                                    }
+                                    
+                                    publicData.artworks.push(artwork);
+                                    publicData.lastUpdated = new Date().toISOString();
+                                    
+                                    // 공용 갤러리 업데이트
+                                    const updateResponse = await fetch(`${this.JSONBLOB_API_URL}/${publicBlobId}`, {
+                                        method: 'PUT',
+                                        headers: {
+                                            'Content-Type': 'application/json',
+                                            'Accept': 'application/json'
+                                        },
+                                        body: JSON.stringify(publicData)
+                                    });
+                                    
+                                    if (!updateResponse.ok) {
+                                        console.error('공용 갤러리 업데이트 실패');
+                                    }
+                                } else {
+                                    // 기존 블롭을 가져올 수 없으면 새로 생성
+                                    publicData = {
+                                        artworks: [artwork],
+                                        lastUpdated: new Date().toISOString()
+                                    };
+                                    
+                                    const newResponse = await fetch(this.JSONBLOB_API_URL, {
+                                        method: 'POST',
+                                        headers: {
+                                            'Content-Type': 'application/json',
+                                            'Accept': 'application/json'
+                                        },
+                                        body: JSON.stringify(publicData)
+                                    });
+                                    
+                                    if (newResponse.ok) {
+                                        const location = newResponse.headers.get('Location');
+                                        const newBlobId = location.split('/').pop();
+                                        localStorage.setItem(this.STORAGE_KEYS.PUBLIC_BLOB_ID, newBlobId);
+                                        console.log('새 공용 갤러리 블롭 생성됨:', newBlobId);
+                                    }
+                                }
+                            } catch (error) {
+                                console.error('공용 갤러리 데이터 가져오기 오류:', error);
+                            }
                         }
-                    } catch (publicError) {
-                        console.error('공용 갤러리 업데이트 오류:', publicError);
+                    } catch (error) {
+                        console.error('공용 갤러리 업데이트 오류:', error);
                         // 공용 갤러리 업데이트 실패는 무시하고 진행
                     }
                 }
                 
-                return Promise.resolve({ success: true, artworkId });
+                return { success: true, artworkId };
             } catch (error) {
                 console.error('작품 공유 오류:', error);
-                return Promise.reject(error);
+                throw error;
             }
         },
         
@@ -3290,13 +3517,18 @@
                 }
                 
                 // 2. 사용자 데이터 가져오기
-                const response = await fetch(`${this.JSONBLOB_API_URL}/${userBlobId}`);
-                if (!response.ok) {
-                    throw new Error('사용자 데이터를 가져오는데 실패했습니다.');
+                try {
+                    const response = await fetch(`${this.JSONBLOB_API_URL}/${userBlobId}`);
+                    if (!response.ok) {
+                        throw new Error('사용자 데이터를 가져오는데 실패했습니다.');
+                    }
+                    
+                    const userData = await response.json();
+                    return userData.artworks || [];
+                } catch (error) {
+                    console.error('사용자 작품 가져오기 오류:', error);
+                    return this.getLocalArtworks();
                 }
-                
-                const userData = await response.json();
-                return userData.artworks || [];
             } catch (error) {
                 console.error('사용자 작품 가져오기 오류:', error);
                 // 오류 발생 시 로컬 파일 반환
@@ -3325,7 +3557,14 @@
         // 공용 갤러리 작품 가져오기
         async getPublicArtworks() {
             try {
-                const response = await fetch(`${this.JSONBLOB_API_URL}/${this.PUBLIC_GALLERY_BLOB_ID}`);
+                const publicBlobId = localStorage.getItem(this.STORAGE_KEYS.PUBLIC_BLOB_ID);
+                if (!publicBlobId) {
+                    console.log('공용 갤러리 블롭 ID가 없습니다.');
+                    return [];
+                }
+                
+                console.log('공용 갤러리 블롭 ID:', publicBlobId);
+                const response = await fetch(`${this.JSONBLOB_API_URL}/${publicBlobId}`);
                 if (!response.ok) {
                     throw new Error('공용 갤러리를 가져오는데 실패했습니다.');
                 }
@@ -3334,7 +3573,7 @@
                 return galleryData.artworks || [];
             } catch (error) {
                 console.error('공용 갤러리 가져오기 오류:', error);
-                return Promise.resolve([]);
+                return [];
             }
         },
         
@@ -3343,7 +3582,7 @@
             try {
                 const favorites = this.getFavorites();
                 if (!favorites || favorites.length === 0) {
-                    return Promise.resolve([]);
+                    return [];
                 }
                 
                 // 사용자 작품과 공용 갤러리에서 즐겨찾기된 작품 찾기
@@ -3358,10 +3597,10 @@
                     favorites.includes(artwork.id)
                 );
                 
-                return Promise.resolve(favoriteArtworks);
+                return favoriteArtworks;
             } catch (error) {
                 console.error('즐겨찾기 작품 가져오기 오류:', error);
-                return Promise.resolve([]);
+                return [];
             }
         },
         
@@ -3386,10 +3625,10 @@
                     appState.favorites = favorites;
                 }
                 
-                return Promise.resolve(favorites);
+                return favorites;
             } catch (error) {
                 console.error('즐겨찾기 추가 오류:', error);
-                return Promise.resolve([]);
+                return [];
             }
         },
         
@@ -3401,10 +3640,10 @@
                 localStorage.setItem(this.STORAGE_KEYS.FAVORITES, JSON.stringify(favorites));
                 appState.favorites = favorites;
                 
-                return Promise.resolve(favorites);
+                return favorites;
             } catch (error) {
                 console.error('즐겨찾기 제거 오류:', error);
-                return Promise.resolve([]);
+                return [];
             }
         },
         
@@ -3416,56 +3655,68 @@
                 
                 // 사용자 작품에서 찾기
                 if (userBlobId) {
-                    const userResponse = await fetch(`${this.JSONBLOB_API_URL}/${userBlobId}`);
-                    if (userResponse.ok) {
-                        const userData = await userResponse.json();
-                        
-                        const artworkIndex = userData.artworks.findIndex(a => a.id === artworkId);
-                        if (artworkIndex !== -1) {
-                            // 조회수 증가
-                            userData.artworks[artworkIndex].views = (userData.artworks[artworkIndex].views || 0) + 1;
-                            userData.lastUpdated = new Date().toISOString();
+                    try {
+                        const userResponse = await fetch(`${this.JSONBLOB_API_URL}/${userBlobId}`);
+                        if (userResponse.ok) {
+                            const userData = await userResponse.json();
                             
-                            // 업데이트
-                            await fetch(`${this.JSONBLOB_API_URL}/${userBlobId}`, {
-                                method: 'PUT',
-                                headers: {
-                                    'Content-Type': 'application/json',
-                                    'Accept': 'application/json'
-                                },
-                                body: JSON.stringify(userData)
-                            });
+                            if (userData.artworks) {
+                                const artworkIndex = userData.artworks.findIndex(a => a.id === artworkId);
+                                if (artworkIndex !== -1) {
+                                    // 조회수 증가
+                                    userData.artworks[artworkIndex].views = (userData.artworks[artworkIndex].views || 0) + 1;
+                                    userData.lastUpdated = new Date().toISOString();
+                                    
+                                    // 업데이트
+                                    await fetch(`${this.JSONBLOB_API_URL}/${userBlobId}`, {
+                                        method: 'PUT',
+                                        headers: {
+                                            'Content-Type': 'application/json',
+                                            'Accept': 'application/json'
+                                        },
+                                        body: JSON.stringify(userData)
+                                    });
+                                }
+                            }
                         }
+                    } catch (error) {
+                        console.error('사용자 블롭 조회수 업데이트 오류:', error);
                     }
                 }
                 
                 // 공용 갤러리에서도 찾기
-                const publicResponse = await fetch(`${this.JSONBLOB_API_URL}/${this.PUBLIC_GALLERY_BLOB_ID}`);
-                if (publicResponse.ok) {
-                    const publicData = await publicResponse.json();
-                    
-                    const artworkIndex = publicData.artworks.findIndex(a => a.id === artworkId);
-                    if (artworkIndex !== -1) {
-                        // 조회수 증가
-                        publicData.artworks[artworkIndex].views = (publicData.artworks[artworkIndex].views || 0) + 1;
-                        publicData.lastUpdated = new Date().toISOString();
-                        
-                        // 업데이트
-                        await fetch(`${this.JSONBLOB_API_URL}/${this.PUBLIC_GALLERY_BLOB_ID}`, {
-                            method: 'PUT',
-                            headers: {
-                                'Content-Type': 'application/json',
-                                'Accept': 'application/json'
-                            },
-                            body: JSON.stringify(publicData)
-                        });
+                const publicBlobId = localStorage.getItem(this.STORAGE_KEYS.PUBLIC_BLOB_ID);
+                if (publicBlobId) {
+                    try {
+                        const publicResponse = await fetch(`${this.JSONBLOB_API_URL}/${publicBlobId}`);
+                        if (publicResponse.ok) {
+                            const publicData = await publicResponse.json();
+                            
+                            if (publicData.artworks) {
+                                const artworkIndex = publicData.artworks.findIndex(a => a.id === artworkId);
+                                if (artworkIndex !== -1) {
+                                    // 조회수 증가
+                                    publicData.artworks[artworkIndex].views = (publicData.artworks[artworkIndex].views || 0) + 1;
+                                    publicData.lastUpdated = new Date().toISOString();
+                                    
+                                    // 업데이트
+                                    await fetch(`${this.JSONBLOB_API_URL}/${publicBlobId}`, {
+                                        method: 'PUT',
+                                        headers: {
+                                            'Content-Type': 'application/json',
+                                            'Accept': 'application/json'
+                                        },
+                                        body: JSON.stringify(publicData)
+                                    });
+                                }
+                            }
+                        }
+                    } catch (error) {
+                        console.error('공용 갤러리 조회수 업데이트 오류:', error);
                     }
                 }
-                
-                return Promise.resolve();
             } catch (error) {
                 console.error('조회수 증가 오류:', error);
-                return Promise.resolve();
             }
         }
     };
@@ -3773,7 +4024,7 @@
         }
     }
 
-    // 앱 시작 개선
+    // 앱 시작 함수 개선
     async function startApp() {
         try {
             // 로딩 화면 숨기기
@@ -3791,8 +4042,10 @@
             // 캔버스 초기화
             canvasRenderer.initCanvas();
             
-            // VAL 파일 버튼 추가
-            addVALFileButtons();
+            // VAL 파일 버튼 추가 (이미 존재하는지 확인)
+            if (!document.querySelector('.btn .valorant-text:contains("VAL 내보내기")')) {
+                addVALFileButtons();
+            }
             
             // 도구 버튼 이벤트
             if (elements.drawEraseBtn) {
@@ -3845,227 +4098,12 @@
                 elements.onlineBtn.addEventListener('click', openOnlineGallery);
             }
             
-            // 내보내기/가져오기 버튼 이벤트
-            if (elements.exportImportBtn) {
-                elements.exportImportBtn.addEventListener('click', openExportImportDialog);
-            }
-            
-            // 모달 닫기 이벤트
-            document.querySelectorAll('.modal-close').forEach(closeBtn => {
-                closeBtn.addEventListener('click', (e) => {
-                    const modal = e.target.closest('.modal');
-                    if (modal) utils.hideModal(modal);
-                });
-            });
-            
-            // 설정 모달 이벤트
-            if (elements.cellSizeRange) {
-                elements.cellSizeRange.addEventListener('input', () => {
-                    if (elements.cellSizeValue) {
-                        elements.cellSizeValue.textContent = `${elements.cellSizeRange.value}px`;
-                    }
-                });
-            }
-            
-            if (elements.brushSizeRange) {
-                elements.brushSizeRange.addEventListener('input', () => {
-                    if (elements.brushSizeValue) {
-                        elements.brushSizeValue.textContent = elements.brushSizeRange.value;
-                    }
-                });
-            }
-            
-            // 커스텀 이모지 설정 변경 이벤트
-            if (elements.customModeSwitch) {
-                elements.customModeSwitch.addEventListener('change', () => {
-                    elements.customEmojiSettings.style.display = elements.customModeSwitch.checked ? 'block' : 'none';
-                    
-                    // 커스텀 모드가 켜져 있으면 배경 투명 모드 비활성화
-                    if (elements.customModeSwitch.checked) {
-                        elements.bgModeSwitch.checked = false;
-                        elements.bgModeSwitch.disabled = true;
-                    } else {
-                        elements.bgModeSwitch.disabled = false;
-                    }
-                });
-            }
-            
-            // 설정 저장/취소 버튼
-            if (elements.settingsCancelBtn && elements.settingsModal) {
-                elements.settingsCancelBtn.addEventListener('click', () => {
-                    utils.hideModal(elements.settingsModal);
-                });
-            }
-            if (elements.settingsSaveBtn) {
-                elements.settingsSaveBtn.addEventListener('click', applySettings);
-            }
-            
-            // 파일 모달 이벤트
-            if (elements.fileModalCancelBtn && elements.fileModal) {
-                elements.fileModalCancelBtn.addEventListener('click', () => {
-                    utils.hideModal(elements.fileModal);
-                });
-            }
-            
-            if (elements.fileActionBtn) {
-                elements.fileActionBtn.addEventListener('click', () => {
-                    if (elements.fileModalTitle && elements.fileModalTitle.textContent === '파일 저장') {
-                        saveFile();
-                    } else {
-                        loadFile();
-                    }
-                });
-            }
-            
-            if (elements.fileDeleteBtn) {
-                elements.fileDeleteBtn.addEventListener('click', deleteFile);
-            }
-            
-            if (elements.fileExportBtn) {
-                elements.fileExportBtn.addEventListener('click', exportSelectedFile);
-            }
-            
-            // 내보내기/가져오기 모달 이벤트
-            if (elements.exportImportCancelBtn) {
-                elements.exportImportCancelBtn.addEventListener('click', () => {
-                    utils.hideModal(elements.exportImportModal);
-                });
-            }
-            
-            if (elements.exportBtn) {
-                elements.exportBtn.addEventListener('click', () => {
-                    // 내보내기 모드 설정
-                    elements.exportImportTitle.textContent = '파일 내보내기';
-                    elements.importFileInput.style.display = 'none';
-                    elements.exportFileNameGroup.style.display = 'block';
-                    elements.executeExportImportBtn.style.display = 'inline-block';
-                    elements.executeExportImportBtn.textContent = '내보내기';
-                    
-                    // 기본 파일명 설정 (현재 날짜/시간 기준)
-                    const now = new Date();
-                    const defaultFileName = `valpaint_${now.getFullYear()}${(now.getMonth()+1).toString().padStart(2, '0')}${now.getDate().toString().padStart(2, '0')}_${now.getHours().toString().padStart(2, '0')}${now.getMinutes().toString().padStart(2, '0')}`;
-                    elements.exportFileName.value = defaultFileName;
-                    
-                    // 내보내기 버튼 이벤트 설정
-                    elements.executeExportImportBtn.onclick = exportFile;
-                });
-            }
-            
-            if (elements.importBtn) {
-                elements.importBtn.addEventListener('click', () => {
-                    // 가져오기 모드 설정
-                    elements.exportImportTitle.textContent = '파일 가져오기';
-                    elements.importFileInput.style.display = 'block';
-                    elements.exportFileNameGroup.style.display = 'none';
-                    elements.executeExportImportBtn.style.display = 'inline-block';
-                    elements.executeExportImportBtn.textContent = '가져오기';
-                    
-                    // 파일 입력 초기화
-                    document.getElementById('fileInput').value = '';
-                    
-                    // 가져오기 버튼 이벤트 설정
-                    elements.executeExportImportBtn.onclick = importFile;
-                });
-            }
-            
-            // 공유 모달 이벤트
-            if (elements.shareModalCancelBtn && elements.shareModal) {
-                elements.shareModalCancelBtn.addEventListener('click', () => {
-                    utils.hideModal(elements.shareModal);
-                });
-            }
-            if (elements.shareActionBtn) {
-                elements.shareActionBtn.addEventListener('click', shareArtwork);
-            }
-            
-            // 온라인 갤러리 탭 이벤트
-            document.querySelectorAll('.online-tab').forEach(tab => {
-                tab.addEventListener('click', () => {
-                    loadGalleryItems(tab.dataset.tab);
-                });
-            });
-            
-            // 갤러리 검색 이벤트
-            if (elements.searchInput) {
-                elements.searchInput.addEventListener('keyup', (e) => {
-                    if (e.key === 'Enter') {
-                        const activeTab = document.querySelector('.online-tab.active');
-                        if (activeTab) {
-                            loadGalleryItems(activeTab.dataset.tab);
-                        }
-                    }
-                });
-            }
-            
-            // 갤러리 새로고침 버튼
-            if (elements.refreshGalleryBtn) {
-                elements.refreshGalleryBtn.addEventListener('click', () => {
-                    const activeTab = document.querySelector('.online-tab.active');
-                    if (activeTab) {
-                        loadGalleryItems(activeTab.dataset.tab);
-                    }
-                });
-            }
-            
-            // 도움말 모달 이벤트
-            if (elements.helpCloseBtn && elements.helpModal) {
-                elements.helpCloseBtn.addEventListener('click', () => {
-                    utils.hideModal(elements.helpModal);
-                });
-            }
-            
-            // 단축키 버튼 이벤트
-            if (elements.shortcutsBtn && elements.shortcutsModal) {
-                elements.shortcutsBtn.addEventListener('click', () => {
-                    utils.hideModal(elements.helpModal);
-                    utils.showModal(elements.shortcutsModal);
-                });
-            }
-            
-            // 단축키 모달 이벤트
-            if (elements.shortcutsCloseBtn && elements.shortcutsModal) {
-                elements.shortcutsCloseBtn.addEventListener('click', () => {
-                    utils.hideModal(elements.shortcutsModal);
-                });
-            }
-            
-            // 브러시 커서 이벤트
-            document.addEventListener('mousemove', updateBrushCursor);
-            
-            // 마우스 업 이벤트 (드래그 종료)
-            document.addEventListener('mouseup', () => {
-                appState.isDragging = false;
-                appState.lastCellPosition = null;
-                
-                // 디바운스 타이머 정리
-                if (appState.debounceTimer) {
-                    clearTimeout(appState.debounceTimer);
-                    appState.debounceTimer = null;
-                }
-            });
-            
-            // 브러시 커서 표시/숨김
-            document.addEventListener('mouseenter', () => {
-                if (elements.brushCursor) elements.brushCursor.style.display = 'block';
-            });
-
-            document.addEventListener('mouseleave', () => {
-                if (elements.brushCursor) elements.brushCursor.style.display = 'none';
-            });
-
-            // 키보드 단축키
+            // 키보드 단축키 이벤트
             document.addEventListener('keydown', handleKeyboardShortcuts);
-            
-            // 브러시 커서 초기 설정
-            if (elements.brushCursor) {
-                elements.brushCursor.style.display = 'none';
-            }
             
             // 개선된 토스트 메시지
             utils.showToast('VALPAINT가 준비되었습니다!', 'success');
             
-            // VAL 파일 버튼 추가
-            addVALFileButtons();
         } catch (error) {
             handleError(error, '앱 시작 중 오류가 발생했습니다');
         }
