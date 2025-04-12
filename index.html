@@ -7884,6 +7884,7 @@ function setupAccessibility() {
 }
 // 초기화 및 이벤트 핸들러 설정
 // 초기화 및 이벤트 핸들러 설정 (완전히 수정된 버전)
+// 초기화 및 이벤트 핸들러 설정 (수정된 버전)
 async function initialize() {
     try {
         console.log('초기화 시작...');
@@ -7900,8 +7901,8 @@ async function initialize() {
             return;
         }
         
-        // 보안 기능 설정 (수정된 함수 사용)
-        setupBrowserSecurity();
+        // 보안 기능 설정
+        setupSecurity();
         
         // 로딩 화면 표시
         if (elements.loadingScreen) {
@@ -7911,8 +7912,34 @@ async function initialize() {
         // 접근성 개선
         setupAccessibility();
         
-        // 로그인 폼 이벤트 리스너 설정
-        setupLoginForm();
+        // 여기서 setupLoginForm 함수 호출 부분을 제거하고 직접 코드 삽입
+        
+        // 로그인 폼 이벤트 리스너 설정 (직접 코드 삽입)
+        const loginForm = document.getElementById('login-form');
+        if (loginForm) {
+            loginForm.removeAttribute('onsubmit');
+            loginForm.addEventListener('submit', function(e) {
+                window.handleLogin(e);
+            });
+        }
+        
+        // 비회원 모드 버튼 설정
+        const guestModeBtn = document.querySelector('.guest-button button');
+        if (guestModeBtn) {
+            guestModeBtn.removeAttribute('onclick');
+            guestModeBtn.addEventListener('click', function() {
+                window.enableGuestMode();
+            });
+        }
+        
+        // 모달 닫기 버튼 설정
+        const closeBtn = document.querySelector('#auth-modal .modal-close');
+        if (closeBtn) {
+            closeBtn.removeAttribute('onclick');
+            closeBtn.addEventListener('click', function() {
+                utils.hideModal(document.getElementById('auth-modal'));
+            });
+        }
         
         console.log('Supabase 초기화 중...');
         // Supabase 클라이언트 초기화
@@ -7966,14 +7993,7 @@ async function initialize() {
         }
         
         // 오류 메시지 표시
-        const errorMessage = document.createElement('div');
-        errorMessage.style.cssText = 'position: fixed; top: 50%; left: 50%; transform: translate(-50%, -50%); background-color: #1a242d; padding: 20px; border-radius: 8px; text-align: center; max-width: 500px; box-shadow: 0 4px 12px rgba(0, 0, 0, 0.5); color: #ece8e1;';
-        errorMessage.innerHTML = `
-            <h3 style="color: #ff4655; margin-bottom: 15px;">초기화 오류</h3>
-            <p>${error.message || '앱 초기화 중 오류가 발생했습니다.'}</p>
-            <button onclick="location.reload()" style="margin-top: 15px; background-color: #ff4655; color: white; border: none; padding: 8px 16px; border-radius: 4px; cursor: pointer;">새로고침</button>
-        `;
-        document.body.appendChild(errorMessage);
+        utils.showToast('초기화 중 오류가 발생했습니다: ' + error.message, 'error');
     }
 }
 
