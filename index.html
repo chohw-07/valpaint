@@ -1,6 +1,65 @@
 <!DOCTYPE html>
 <html lang="ko">
 <head>
+    <script>
+// 전역 함수 사전 정의 - 페이지 로드 전에 먼저 정의해야 함
+window.showAuthModal = function() {
+    console.log('인증 모달 표시 준비 중...');
+    // 실제 구현은 메인 스크립트에서 덮어씌워짐
+    const authModal = document.getElementById('auth-modal');
+    if (authModal) {
+        authModal.style.display = 'flex';
+        setTimeout(() => { authModal.classList.add('show'); }, 10);
+    }
+};
+
+window.enableGuestMode = function() {
+    console.log('비회원 모드 활성화 준비 중...');
+    // 실제 구현은 메인 스크립트에서 덮어씌워짐
+    const userDisplay = document.getElementById('userDisplayName');
+    if (userDisplay) userDisplay.textContent = '비회원';
+    
+    const authModal = document.getElementById('auth-modal');
+    if (authModal) {
+        authModal.style.display = 'none';
+        authModal.classList.remove('show');
+    }
+};
+
+window.handleLogin = function(event) {
+    if (event) event.preventDefault();
+    console.log('로그인 처리 준비 중...');
+    // 실제 구현은 메인 스크립트에서 덮어씌워짐
+};
+
+window.handleLogout = function() {
+    console.log('로그아웃 처리 준비 중...');
+    // 실제 구현은 메인 스크립트에서 덮어씌워짐
+};
+
+window.goBackToHome = function() {
+    console.log('홈으로 돌아가기 준비 중...');
+    // 실제 구현은 메인 스크립트에서 덮어씌워짐
+    const galleryPage = document.getElementById('galleryPage');
+    const artworkPage = document.getElementById('artworkPage');
+    
+    if (galleryPage) galleryPage.classList.remove('active');
+    if (artworkPage) artworkPage.classList.remove('active');
+};
+
+window.loadGalleryItems = function(tab) {
+    console.log('갤러리 아이템 로드 준비 중...');
+    // 실제 구현은 메인 스크립트에서 덮어씌워짐
+};
+
+// 빈 객체 미리 정의
+window.uiManager = {};
+window.canvasRenderer = {};
+window.utils = {};
+window.api = {};
+
+console.log('전역 함수 사전 정의 완료');
+</script>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Valpaint</title>
@@ -1546,18 +1605,18 @@
         <div class="modal-content">
             <div class="modal-header">
                 <h3 class="modal-title valorant-text">VALPAINT에 오신 것을 환영합니다!</h3>
-                <span class="modal-close">&times;</span>
+                <span class="modal-close" onclick="utils.hideModal(document.getElementById('auth-modal'))">&times;</span>
             </div>
             <div class="modal-body">
                 <!-- 로그인 폼 -->
-                <form id="login-form" class="auth-form">
+                <form id="login-form" class="auth-form" onsubmit="window.handleLogin(event)">
                     <div class="form-group">
                         <label class="form-label" for="loginUsername">작가명</label>
-                        <input type="text" class="form-control" id="loginUsername" placeholder="작가명을 입력하세요" required>
+                        <input type="text" class="form-control" id="loginUsername" placeholder="작가명을 입력하세요" required autocomplete="username">
                     </div>
                     <div class="form-group">
-                        <label class="form-label">비밀번호</label>
-                        <input type="password" class="form-control" id="loginPassword" placeholder="비밀번호를 입력하세요" autocomplete="current-password" required>
+                        <label class="form-label" for="loginPassword">비밀번호</label>
+                        <input type="password" class="form-control" id="loginPassword" placeholder="비밀번호를 입력하세요" autocomplete="current-password" required aria-required="true">
                     </div>
                     <button type="submit" class="btn btn-accent" style="width: 100%;">로그인</button>
                 </form>
@@ -1577,7 +1636,7 @@
                 </div>
                 
                 <div class="guest-button">
-                    <button id="guest-mode-btn" class="btn">비회원으로 계속하기</button>
+                    <button class="btn" onclick="window.enableGuestMode()">비회원으로 계속하기</button>
                 </div>
             </div>
         </div>
