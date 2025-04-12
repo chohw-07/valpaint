@@ -3306,11 +3306,12 @@ const utils = {
         meta.content = "default-src 'self'; script-src 'self' https://cdn.jsdelivr.net https://www.google.com https://www.gstatic.com; style-src 'self' 'unsafe-inline' https://fonts.cdnfonts.com; font-src 'self' https://fonts.cdnfonts.com; img-src 'self' data:; connect-src 'self' https://xesqcwzstgkmvgokfrqx.supabase.co; frame-src 'self' https://www.google.com;";
         document.head.appendChild(meta);
         
-        // X-Frame-Options 헤더 시뮬레이션 (iframe 내 로드 방지)
-        const frameOptions = document.createElement('meta');
-        frameOptions.httpEquiv = 'X-Frame-Options';
-        frameOptions.content = 'DENY';
-        document.head.appendChild(frameOptions);
+        // X-Frame-Options meta 태그 제거 (서버 측 HTTP 헤더로만 설정해야 함)
+        // 대신 CSP frame-ancestors 지시문 사용
+        const frameAncestorsCSP = document.createElement('meta');
+        frameAncestorsCSP.httpEquiv = 'Content-Security-Policy';
+        frameAncestorsCSP.content = "frame-ancestors 'none';";
+        document.head.appendChild(frameAncestorsCSP);
         
         // X-XSS-Protection 헤더 시뮬레이션
         const xssProtection = document.createElement('meta');
@@ -7201,15 +7202,22 @@ function setupAccessibility() {
     const deleteAccountForm = document.getElementById('delete-account-form');
     if (deleteAccountForm) {
         // 이미 추가되었는지 확인
-        if (!deleteAccountForm.querySelector('input[type="hidden"][name="username"]')) {
-            const hiddenUsernameField = document.createElement('input');
-            hiddenUsernameField.type = 'hidden';
-            hiddenUsernameField.id = 'deleteHiddenUsername';
-            hiddenUsernameField.name = 'username';
-            hiddenUsernameField.value = api.getUsername() || '';
-            deleteAccountForm.appendChild(hiddenUsernameField);
-            elements.deleteHiddenUsername = hiddenUsernameField;
+        if (!deleteAccountForm.querySelector('input[name="username"]')) {
+            // username 필드가 없으면 추가
+            const usernameField = document.createElement('div');
+            usernameField.style.cssText = 'position: absolute; left: -9999px; top: -9999px; width: 1px; height: 1px; overflow: hidden;';
+            usernameField.innerHTML = `
+                <label for="deleteHiddenUsername">Username</label>
+                <input type="text" id="deleteHiddenUsername" name="username" autocomplete="username" value="${api.getUsername() || ''}">
+            `;
+            deleteAccountForm.insertBefore(usernameField, deleteAccountForm.firstChild);
         }
+    }
+    
+    // autocomplete 속성 추가
+    const accountUsernameField = document.getElementById('accountUsername');
+    if (accountUsernameField && !accountUsernameField.getAttribute('autocomplete')) {
+        accountUsernameField.setAttribute('autocomplete', 'username');
     }
     
     // ARIA 속성 추가
@@ -7217,6 +7225,15 @@ function setupAccessibility() {
     passwordInputs.forEach(input => {
         if (!input.getAttribute('aria-required')) {
             input.setAttribute('aria-required', 'true');
+        }
+        
+        // autocomplete 속성 추가
+        if (!input.getAttribute('autocomplete')) {
+            if (input.id === 'accountNewPassword') {
+                input.setAttribute('autocomplete', 'new-password');
+            } else {
+                input.setAttribute('autocomplete', 'current-password');
+            }
         }
         
         // 해당 입력 필드의 레이블 연결
@@ -7389,6 +7406,9 @@ async function startApp() {
             elements.userDisplayName.textContent = api.getUsername() || '비회원';
         }
         
+        // 사용자 계정 정보 업데이트
+        updateUserAccountInfo();
+        
         // 비회원 모드 배너 표시/숨기기
         if (utils.validateElement(elements.guestModeBanner, 'guestModeBanner')) {
             elements.guestModeBanner.style.display = appState.isGuestMode ? 'flex' : 'none';
@@ -7427,6 +7447,23 @@ async function startApp() {
         utils.showToast('앱 시작 중 오류가 발생했습니다. 새로고침 후 다시 시도해주세요.', 'error');
     }
 }
+
+// 모든 함수와 변수들이 즉시 실행 함수 내부에 있으므로,
+// 외부에서 접근할 수 있도록 전역으로 필요한 함수들을 노출시킵니다.
+window.validateDomain = utils.validateDomain;
+window.setupSecurity = setupSecurity;
+window.setupAccessibility = setupAccessibility;
+window.updateUserAccountInfo = updateUserAccountInfo;
+window.initialize = initialize;
+window.startApp = startApp;
+window.showAuthModal = showAuthModal;
+window.enableGuestMode = enableGuestMode;
+window.handleLogin = handleLogin;
+window.handleLogout = handleLogout;
+window.uiManager = uiManager;
+window.canvasRenderer = canvasRenderer;
+window.utils = utils;
+window.api = api;
 
 // 애플리케이션 시작
 document.addEventListener('DOMContentLoaded', initialize);
