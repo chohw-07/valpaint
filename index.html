@@ -3092,15 +3092,68 @@ function defineGlobalFunctions() {
         startApp();
     };
 
+// 로그인 폼 이벤트 리스너 설정
+    function setupLoginForm() {
+        // 로그인 폼 찾기
+        const loginForm = document.getElementById('login-form');
+        if (loginForm) {
+            // 인라인 onsubmit 대신 이벤트 리스너 등록
+            loginForm.removeAttribute('onsubmit'); // 기존 속성 제거
+            loginForm.addEventListener('submit', function(event) {
+                window.handleLogin(event);
+            });
+        }
+        
+        // 비회원 모드 버튼 설정
+        const guestModeBtn = document.querySelector('.guest-button button');
+        if (guestModeBtn) {
+            guestModeBtn.removeAttribute('onclick'); // 기존 속성 제거
+            guestModeBtn.addEventListener('click', function() {
+                window.enableGuestMode();
+            });
+        }
+        
+        // 모달 닫기 버튼 설정
+        const closeBtn = document.querySelector('#auth-modal .modal-close');
+        if (closeBtn) {
+            closeBtn.removeAttribute('onclick'); // 기존 속성 제거
+            closeBtn.addEventListener('click', function() {
+                utils.hideModal(document.getElementById('auth-modal'));
+            });
+        }
+    }
+
+    
     // 로그인 처리 함수
     window.handleLogin = async function(event) {
-        if (event) event.preventDefault();
+        if (event) {
+            event.preventDefault(); // 폼 제출 기본 동작 중지 (매우 중요)
+            event.stopPropagation(); // 이벤트 전파 중지
+        }
         
-        const username = elements.loginUsername ? elements.loginUsername.value.trim() : '';
-        const password = elements.loginPassword ? elements.loginPassword.value : '';
+        // 이미 처리 중인지 확인 (중복 제출 방지)
+        const loginBtn = document.querySelector('#login-form button[type="submit"]');
+        if (loginBtn && loginBtn.disabled) {
+            return;
+        }
+        
+        // 버튼 비활성화 및 로딩 표시
+        if (loginBtn) {
+            const originalText = loginBtn.innerHTML;
+            loginBtn.disabled = true;
+            loginBtn.innerHTML = '<span style="display: inline-block; width: 16px; height: 16px; border: 2px solid #fff; border-radius: 50%; border-top-color: transparent; animation: spin 1s infinite linear;"></span> 로그인 중...';
+        }
+        
+        const username = document.getElementById('loginUsername') ? document.getElementById('loginUsername').value.trim() : '';
+        const password = document.getElementById('loginPassword') ? document.getElementById('loginPassword').value : '';
         
         if (!username || !password) {
             utils.showToast('사용자명과 비밀번호를 입력해주세요', 'error');
+            // 버튼 상태 복원
+            if (loginBtn) {
+                loginBtn.disabled = false;
+                loginBtn.innerHTML = '로그인';
+            }
             return;
         }
         
@@ -3113,9 +3166,10 @@ function defineGlobalFunctions() {
                 utils.showToast(`${username}님, 환영합니다!`, 'success');
                 
                 // 인증 모달 닫기
-                if (elements.authModal) {
-                    elements.authModal.style.display = 'none';
-                    elements.authModal.classList.remove('show');
+                const authModal = document.getElementById('auth-modal');
+                if (authModal) {
+                    authModal.style.display = 'none';
+                    authModal.classList.remove('show');
                 }
                 
                 // 앱 시작
@@ -3123,10 +3177,20 @@ function defineGlobalFunctions() {
             } else {
                 // 로그인 실패
                 utils.showToast(result.message || '로그인에 실패했습니다', 'error');
+                // 버튼 상태 복원
+                if (loginBtn) {
+                    loginBtn.disabled = false;
+                    loginBtn.innerHTML = '로그인';
+                }
             }
         } catch (error) {
             console.error('로그인 오류:', error);
             utils.showToast(error.message || '로그인 중 오류가 발생했습니다', 'error');
+            // 버튼 상태 복원
+            if (loginBtn) {
+                loginBtn.disabled = false;
+                loginBtn.innerHTML = '로그인';
+            }
         }
     };
 
@@ -7387,105 +7451,121 @@ function applyValorantFont() {
     }, 5000);
 }
 
-// DOM 엘리먼트 수정 및 접근성 개선
+// 확장된 접근성 개선 함수
 function setupAccessibility() {
-    // 비밀번호 폼 접근성 개선 - 숨겨진 사용자명 필드 추가
-    const deleteAccountForm = document.getElementById('delete-account-form');
-    if (deleteAccountForm) {
-        // 이미 추가되었는지 확인
-        if (!deleteAccountForm.querySelector('input[name="username"]')) {
-            // username 필드가 없으면 추가
-            const usernameField = document.createElement('div');
-            usernameField.style.cssText = 'position: absolute; left: -9999px; top: -9999px; width: 1px; height: 1px; overflow: hidden;';
-            usernameField.innerHTML = `
-                <label for="deleteHiddenUsername">Username</label>
-                <input type="text" id="deleteHiddenUsername" name="username" autocomplete="username" value="${api.getUsername() || ''}">
-            `;
-            deleteAccountForm.insertBefore(usernameField, deleteAccountForm.firstChild);
-        }
-    }
-    
-    // autocomplete 속성 추가
+    // 계정 설정 폼 - 사용자명 필드 접근성 개선
     const accountUsernameField = document.getElementById('accountUsername');
-    if (accountUsernameField && !accountUsernameField.getAttribute('autocomplete')) {
+    if (accountUsernameField) {
         accountUsernameField.setAttribute('autocomplete', 'username');
     }
     
-    // ARIA 속성 추가
-    const passwordInputs = document.querySelectorAll('input[type="password"]');
-    passwordInputs.forEach(input => {
-        if (!input.getAttribute('aria-required')) {
-            input.setAttribute('aria-required', 'true');
-        }
-        
-        // autocomplete 속성 추가
-        if (!input.getAttribute('autocomplete')) {
-            if (input.id === 'accountNewPassword') {
-                input.setAttribute('autocomplete', 'new-password');
-            } else {
-                input.setAttribute('autocomplete', 'current-password');
-            }
-        }
-        
-        // 해당 입력 필드의 레이블 연결
-        const labelId = input.id + 'Label';
-        const labelElement = document.querySelector(`label[for="${input.id}"]`);
-        if (labelElement && !labelElement.id) {
-            labelElement.id = labelId;
-            input.setAttribute('aria-labelledby', labelId);
-        }
-    });
+    // 로그인 폼 - 사용자명과 비밀번호 필드 접근성 개선
+    const loginUsernameField = document.getElementById('loginUsername');
+    if (loginUsernameField) {
+        loginUsernameField.setAttribute('autocomplete', 'username');
+    }
     
-    // 버튼 접근성 개선
-    const buttons = document.querySelectorAll('button');
-    buttons.forEach(button => {
-        if (!button.getAttribute('aria-label') && !button.textContent.trim()) {
-            // 내부 SVG나 아이콘만 있는 버튼에 aria-label 추가
-            if (button.querySelector('svg')) {
-                const title = button.getAttribute('title') || '버튼';
-                button.setAttribute('aria-label', title);
-            }
+    const loginPasswordField = document.getElementById('loginPassword');
+    if (loginPasswordField) {
+        loginPasswordField.setAttribute('autocomplete', 'current-password');
+    }
+    
+    // 계정 삭제 폼 - 접근성 개선을 위한 숨겨진 사용자명 필드 추가
+    const deleteAccountForm = document.getElementById('delete-account-form');
+    if (deleteAccountForm) {
+        if (!deleteAccountForm.querySelector('input[name="username"]')) {
+            const hiddenField = document.createElement('div');
+            hiddenField.style.cssText = 'position: absolute; left: -9999px; top: -9999px; width: 1px; height: 1px; overflow: hidden;';
+            
+            const username = api.getUsername() || '';
+            hiddenField.innerHTML = `
+                <label for="deleteHiddenUsername">사용자명</label>
+                <input type="text" id="deleteHiddenUsername" name="username" autocomplete="username" value="${username}">
+            `;
+            
+            deleteAccountForm.prepend(hiddenField);
         }
+    }
+    
+    // 계정 설정 폼 - 비밀번호 필드 접근성 개선
+    const accountCurrentPasswordField = document.getElementById('accountCurrentPassword');
+    if (accountCurrentPasswordField) {
+        accountCurrentPasswordField.setAttribute('autocomplete', 'current-password');
+    }
+    
+    const accountNewPasswordField = document.getElementById('accountNewPassword');
+    if (accountNewPasswordField) {
+        accountNewPasswordField.setAttribute('autocomplete', 'new-password');
+    }
+    
+    // 계정 삭제 폼 - 비밀번호 필드 접근성 개선
+    const deleteConfirmPasswordField = document.getElementById('deleteConfirmPassword');
+    if (deleteConfirmPasswordField) {
+        deleteConfirmPasswordField.setAttribute('autocomplete', 'current-password');
+    }
+    
+    // 모든 비밀번호 필드에 ARIA 속성 추가
+    document.querySelectorAll('input[type="password"]').forEach(input => {
+        input.setAttribute('aria-required', 'true');
     });
 }
-
 // 초기화 및 이벤트 핸들러 설정
+// 초기화 및 이벤트 핸들러 설정 (완전히 수정된 버전)
 async function initialize() {
     try {
-        // 먼저 전역 함수 정의 - 가장 먼저 실행해야 함
+        console.log('초기화 시작...');
+        
+        // 먼저 전역 함수 정의
         defineGlobalFunctions();
         
         // 도메인 검증
         if (!utils.validateDomain()) {
-            // 도메인 검증 실패 시 더 이상 진행하지 않음
+            console.log('도메인 검증 실패');
             if (elements.loadingScreen) {
                 elements.loadingScreen.style.display = 'none';
             }
             return;
         }
         
-        // 보안 기능 설정
-        setupSecurity();
+        // 보안 기능 설정 (수정된 함수 사용)
+        setupBrowserSecurity();
         
         // 로딩 화면 표시
         if (elements.loadingScreen) {
             elements.loadingScreen.style.display = 'flex';
         }
         
-        // Supabase 클라이언트 초기화
-        supabase = window.supabase.createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
+        // 접근성 개선
+        setupAccessibility();
         
+        // 로그인 폼 이벤트 리스너 설정
+        setupLoginForm();
+        
+        console.log('Supabase 초기화 중...');
+        // Supabase 클라이언트 초기화
+        if (!supabase && window.supabase) {
+            supabase = window.supabase.createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
+        }
+        
+        if (!supabase) {
+            throw new Error('Supabase 클라이언트 초기화 실패');
+        }
+        
+        console.log('API 초기화 중...');
         // API 초기화
         await api.init();
         
+        console.log('사용자 정보 확인 중...');
         // 작가명이 설정되어 있는지 확인
         const username = api.getUsername();
         const isLoggedIn = api.isAuthenticated();
         
         if (username && isLoggedIn) {
+            console.log('로그인 상태 - 앱 시작');
             // 로그인 상태이면 바로 시작
             await startApp();
         } else {
+            console.log('비로그인 상태 - 로그인 모달 표시');
             // 로그인 상태가 아니면 로그인 모달 표시
             setTimeout(() => {
                 if (elements.loadingScreen) {
@@ -7493,7 +7573,15 @@ async function initialize() {
                 }
                 
                 // 인증 모달 표시
-                window.showAuthModal();
+                const authModal = document.getElementById('auth-modal');
+                if (authModal) {
+                    authModal.style.display = 'flex';
+                    setTimeout(() => { 
+                        authModal.classList.add('show'); 
+                    }, 10);
+                } else {
+                    console.error('인증 모달을 찾을 수 없음');
+                }
             }, 1000);
         }
     } catch (error) {
@@ -7504,7 +7592,15 @@ async function initialize() {
             elements.loadingScreen.style.display = 'none';
         }
         
-        utils.showToast('초기화 중 오류가 발생했습니다. 새로고침 후 다시 시도해주세요.', 'error');
+        // 오류 메시지 표시
+        const errorMessage = document.createElement('div');
+        errorMessage.style.cssText = 'position: fixed; top: 50%; left: 50%; transform: translate(-50%, -50%); background-color: #1a242d; padding: 20px; border-radius: 8px; text-align: center; max-width: 500px; box-shadow: 0 4px 12px rgba(0, 0, 0, 0.5); color: #ece8e1;';
+        errorMessage.innerHTML = `
+            <h3 style="color: #ff4655; margin-bottom: 15px;">초기화 오류</h3>
+            <p>${error.message || '앱 초기화 중 오류가 발생했습니다.'}</p>
+            <button onclick="location.reload()" style="margin-top: 15px; background-color: #ff4655; color: white; border: none; padding: 8px 16px; border-radius: 4px; cursor: pointer;">새로고침</button>
+        `;
+        document.body.appendChild(errorMessage);
     }
 }
 
@@ -7544,7 +7640,32 @@ function validateDomain() {
     appState.secureDomainValidated = true;
     return true;
 }
-
+function setupBrowserSecurity() {
+    // Content Security Policy 헤더 시뮬레이션 (실제로는 서버에서 설정해야 함)
+    const meta = document.createElement('meta');
+    meta.httpEquiv = 'Content-Security-Policy';
+    // unsafe-inline 추가하여 인라인 스크립트 허용
+    meta.content = "default-src 'self'; script-src 'self' 'unsafe-inline' https://cdn.jsdelivr.net https://www.google.com https://www.gstatic.com; style-src 'self' 'unsafe-inline' https://fonts.cdnfonts.com; font-src 'self' https://fonts.cdnfonts.com; img-src 'self' data:; connect-src 'self' https://xesqcwzstgkmvgokfrqx.supabase.co; frame-src 'self' https://www.google.com;";
+    document.head.appendChild(meta);
+    
+    // frame-ancestors는 meta 태그로 설정 불가능하므로 제거
+    // 참고: 실제로는 서버에서 HTTP 헤더로 설정해야 함
+    
+    // X-XSS-Protection 헤더 시뮬레이션
+    const xssProtection = document.createElement('meta');
+    xssProtection.httpEquiv = 'X-XSS-Protection';
+    xssProtection.content = '1; mode=block';
+    document.head.appendChild(xssProtection);
+    
+    // Referrer Policy 설정
+    const referrerPolicy = document.createElement('meta');
+    referrerPolicy.name = 'referrer';
+    referrerPolicy.content = 'strict-origin-when-cross-origin';
+    document.head.appendChild(referrerPolicy);
+    
+    // SameSite 쿠키 속성 시뮬레이션
+    document.cookie = 'SameSite=Strict; Secure';
+}
 // 보안 기능 설정
 function setupSecurity() {
     // 이미 초기화되었는지 확인
