@@ -6573,6 +6573,15 @@ if (elements.deleteConfirmCheck && elements.deleteConfirmPassword) {
                 openArtworkPage(hash);
             }
             
+            // 모든 중요 요소에 VALORANT 폰트 적용
+            applyValorantFont();
+            
+            // 계정 삭제 폼에 사용자명 설정
+            const deleteAccountUsername = document.getElementById('deleteAccountUsername');
+            if (deleteAccountUsername) {
+                deleteAccountUsername.value = api.getUsername() || '';
+            }
+            
             // 개선된 토스트 메시지
             utils.showToast('VALPAINT가 준비되었습니다!', 'success');
             
