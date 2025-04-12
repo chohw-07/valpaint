@@ -61,16 +61,16 @@ window.api = {};
 console.log('전역 함수 사전 정의 완료');
 
 // 페이지 로드 시 실행
-document.addEventListener('DOMContentLoaded', function() {
-    // 모든 인라인 이벤트 속성 제거 및 이벤트 리스너로 대체
-    replaceInlineEvents();
-    
-    // 접근성 개선
-    enhanceAccessibility();
-    
-    // 초기화 프로세스 시작
-    initialize();
-});
+    document.addEventListener('DOMContentLoaded', function() {
+        // 모든 인라인 이벤트 속성 제거 및 이벤트 리스너로 대체
+        replaceInlineEvents();
+        
+        // 접근성 개선
+        enhanceAccessibility();
+        
+        // 초기화 프로세스 시작
+        initialize();
+    });
 
 // 인라인 이벤트 속성 제거 및 이벤트 리스너로 대체
 function replaceInlineEvents() {
