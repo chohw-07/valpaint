@@ -1543,7 +1543,7 @@
                     </div>
                     <div class="form-group">
                         <label class="form-label">비밀번호</label>
-                        <input type="password" class="form-control" id="loginPassword" placeholder="비밀번호를 입력하세요" required>
+                        <input type="password" class="form-control" id="loginPassword" placeholder="비밀번호를 입력하세요" autocomplete="current-password" required>
                     </div>
                     <button type="submit" class="btn btn-accent" style="width: 100%;">로그인</button>
                 </form>
@@ -1556,11 +1556,11 @@
                     </div>
                     <div class="form-group">
                         <label class="form-label">비밀번호</label>
-                        <input type="password" class="form-control" id="registerPassword" placeholder="간단한 비밀번호를 입력하세요" required>
+                        <input type="password" class="form-control" id="registerPassword" placeholder="간단한 비밀번호를 입력하세요" autocomplete="new-password" required>
                     </div>
                     <div class="form-group">
                         <label class="form-label">비밀번호 확인</label>
-                        <input type="password" class="form-control" id="registerPasswordConfirm" placeholder="비밀번호를 다시 입력하세요" required>
+                        <input type="password" class="form-control" id="registerPasswordConfirm" placeholder="비밀번호를 다시 입력하세요" autocomplete="new-password" required>
                     </div>
                     
                     <!-- 경고 메시지 추가 -->
@@ -1764,11 +1764,11 @@
                     </div>
                     <div class="form-group">
                         <label class="form-label">현재 비밀번호</label>
-                        <input type="password" class="form-control" id="accountCurrentPassword" placeholder="현재 비밀번호 입력" required>
+                        <input type="password" class="form-control" id="accountCurrentPassword" placeholder="현재 비밀번호 입력" autocomplete="current-password" required>
                     </div>
                     <div class="form-group">
                         <label class="form-label">새 비밀번호 (선택사항)</label>
-                        <input type="password" class="form-control" id="accountNewPassword" placeholder="변경을 원하시면 입력하세요">
+                        <input type="password" class="form-control" id="accountNewPassword" placeholder="변경을 원하시면 입력하세요" autocomplete="new-password">
                     </div>
                 </form>
             </div>
@@ -1807,7 +1807,7 @@
                 <form id="delete-account-form" style="margin-top: 20px;">
                     <div class="form-group">
                         <label class="form-label">비밀번호 확인</label>
-                        <input type="password" class="form-control" id="deleteConfirmPassword" placeholder="계정 삭제를 위해 비밀번호를 입력하세요" required>
+                        <input type="password" class="form-control" id="deleteConfirmPassword" placeholder="계정 삭제를 위해 비밀번호를 입력하세요" autocomplete="current-password" required>
                     </div>
                     
                     <div class="checkbox-wrapper" style="margin-top: 15px;">
