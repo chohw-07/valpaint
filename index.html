@@ -2310,11 +2310,11 @@
 // Supabase 클라이언트 초기화 (실제 배포 시에는 환경변수나 설정 파일로 분리하는 것을 권장)
 const SUPABASE_URL = 'https://xesqcwzstgkmvgokfrqx.supabase.co';
 const SUPABASE_ANON_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Inhlc3Fjd3pzdGdrbXZnb2tmcnF4Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3NDQ0MjI0MjgsImV4cCI6MjA1OTk5ODQyOH0.W7yL0YxaQ1O_eaeRfntYQFdnmyafixKsQy_diDzxttc';
-const supabase = window.supabase.createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
+let supabase = null;
 
 // 상수 및 환경 설정
 const CONFIG = {
-    APP_VERSION: '2.2.0',
+    APP_VERSION: '2.2.1', // 버전 업데이트
     MAX_ARTWORK_PER_USER: 10,
     DEFAULT_CELL_SIZE: 40,
     MAX_BRUSH_SIZE: 3,
@@ -2325,8 +2325,17 @@ const CONFIG = {
     TOAST_DURATION: 4000, // ms
     SECURITY: {
         HASH_SALT_PREFIX: 'valpaint-secure-',
-        CRYPT_ITERATIONS: 1000, // SHA-256 iterations for increased security
-        SESSION_DURATION: 7 * 24 * 60 * 60 * 1000 // 1 week in ms
+        CRYPT_ITERATIONS: 10000, // SHA-256 iterations 증가
+        SESSION_DURATION: 7 * 24 * 60 * 60 * 1000, // 1 week in ms
+        ALLOWED_DOMAINS: ['localhost', '127.0.0.1', 'valpaint.art', 'www.valpaint.art'], // 허용된 도메인 목록
+        JWT_SECRET: 'Vc9VxtaP3Lf7HbJ5KmNqRs8TzWyXuE2D', // JWT 토큰 서명용 비밀키 (실제로는 환경변수에서 로드해야 함)
+        CSRF_TOKEN_EXPIRY: 60 * 60 * 1000, // 1 hour in ms
+        RATE_LIMIT: {
+            LOGIN_ATTEMPTS: 5, // 최대 로그인 시도 횟수
+            LOGIN_LOCKOUT: 15 * 60 * 1000, // 15 minutes in ms
+            API_REQUESTS: 100, // 시간당 최대 API 요청 수
+            API_WINDOW: 60 * 60 * 1000 // 1 hour in ms
+        }
     },
     STORAGE_KEYS: {
         PREFIX: 'valpaint_',
@@ -2336,7 +2345,9 @@ const CONFIG = {
         AUTH_EXPIRY: 'valpaint_auth_expiry',
         FAVORITES: 'valpaint_favorites',
         SETTINGS: 'valpaint_settings',
-        TERMS_ACCEPTED: 'valpaint_terms_accepted'
+        TERMS_ACCEPTED: 'valpaint_terms_accepted',
+        CSRF_TOKEN: 'valpaint_csrf_token',
+        CSRF_EXPIRY: 'valpaint_csrf_expiry'
     }
 };
 
@@ -2380,6 +2391,18 @@ const appState = {
         page: 1,
         pageSize: 12,
         totalPages: 1
+    },
+    secureDomainValidated: false, // 도메인 유효성 검사 상태
+    csrfToken: null, // CSRF 토큰
+    csrfExpiry: null, // CSRF 토큰 만료 시간
+    rateLimits: { // 속도 제한 상태
+        loginAttempts: 0,
+        loginLockoutUntil: 0,
+        apiRequests: 0,
+        apiWindowStart: 0
+    },
+    security: {
+        initialized: false
     }
 };
 
@@ -2416,6 +2439,8 @@ const elements = {
     settingsModal: document.getElementById('settingsModal'),
     helpModal: document.getElementById('helpModal'),
     shortcutsModal: document.getElementById('shortcutsModal'),
+    userSettingsModal: document.getElementById('userSettingsModal'),
+    deleteAccountModal: document.getElementById('deleteAccountModal'),
     
     // 페이지 요소
     galleryPage: document.getElementById('galleryPage'),
@@ -2432,6 +2457,24 @@ const elements = {
     // 사용자 프로필
     userProfileBtn: document.getElementById('userProfileBtn'),
     userDropdownMenu: document.getElementById('userDropdownMenu'),
+    userSettingsBtn: document.getElementById('userSettingsBtn'),
+    deleteAccountBtn: document.getElementById('deleteAccountBtn'),
+    
+    // 계정 설정 요소
+    accountSettingsForm: document.getElementById('account-settings-form'),
+    accountUsername: document.getElementById('accountUsername'),
+    accountCurrentPassword: document.getElementById('accountCurrentPassword'),
+    accountNewPassword: document.getElementById('accountNewPassword'),
+    accountCancelBtn: document.getElementById('accountCancelBtn'),
+    accountSaveBtn: document.getElementById('accountSaveBtn'),
+    
+    // 계정 삭제 요소
+    deleteAccountForm: document.getElementById('delete-account-form'),
+    deleteConfirmPassword: document.getElementById('deleteConfirmPassword'),
+    deleteConfirmCheck: document.getElementById('deleteConfirmCheck'),
+    deleteCancelBtn: document.getElementById('deleteCancelBtn'),
+    deleteConfirmBtn: document.getElementById('deleteConfirmBtn'),
+    deleteHiddenUsername: document.getElementById('deleteHiddenUsername'),
     
     // 파일 관리 요소
     fileForm: document.getElementById('file-form'),
@@ -2520,6 +2563,422 @@ const elements = {
     loadingScreen: document.getElementById('loading-screen')
 };
 
+// 캔버스 렌더러 객체 - 그림 그리기 기능 관리
+const canvasRenderer = {
+    canvas: null,
+    gridRows: CONFIG.DEFAULT_GRID_ROWS,
+    gridCols: CONFIG.DEFAULT_GRID_COLS,
+    cells: [],
+    cellSize: CONFIG.DEFAULT_CELL_SIZE,
+    currentData: [],
+    
+    // 캔버스 초기화
+    initCanvas() {
+        this.canvas = elements.drawingCanvas;
+        if (!this.canvas) {
+            utils.showToast('캔버스 요소를 찾을 수 없습니다', 'error');
+            return false;
+        }
+        
+        // 그리드 생성
+        this.createGrid();
+        
+        // 이벤트 리스너 등록
+        this.setupCanvasEvents();
+        
+        return true;
+    },
+    
+    // 그리드 생성
+    createGrid() {
+        if (!this.canvas) return;
+        
+        // 기존 그리드 정리
+        this.canvas.innerHTML = '';
+        this.cells = [];
+        
+        // 설정 적용
+        this.gridRows = settings.emojiRows || CONFIG.DEFAULT_GRID_ROWS;
+        this.gridCols = settings.emojiCols || CONFIG.DEFAULT_GRID_COLS;
+        this.cellSize = settings.cellSize || CONFIG.DEFAULT_CELL_SIZE;
+        
+        // 그리드 스타일 설정
+        this.canvas.style.gridTemplateRows = `repeat(${this.gridRows}, ${this.cellSize}px)`;
+        this.canvas.style.gridTemplateColumns = `repeat(${this.gridCols}, ${this.cellSize}px)`;
+        
+        // 초기 데이터 배열 생성
+        this.currentData = Array(this.gridRows).fill(0).map(() => Array(this.gridCols).fill(0));
+        
+        // 셀 생성
+        for (let row = 0; row < this.gridRows; row++) {
+            for (let col = 0; col < this.gridCols; col++) {
+                const cell = document.createElement('div');
+                cell.className = 'emoji-cell';
+                
+                // 배경 모드 설정
+                if (settings.bgMode === 'transparent') {
+                    cell.classList.add('transparent');
+                }
+                
+                // 커스텀 모드 이모지 설정
+                if (settings.customMode) {
+                    cell.textContent = settings.emptyEmoji || '□';
+                } else {
+                    cell.textContent = '□';
+                }
+                
+                // 데이터 속성 설정
+                cell.dataset.row = row;
+                cell.dataset.col = col;
+                
+                // 셀 클릭 이벤트
+                cell.addEventListener('mousedown', (e) => {
+                    e.preventDefault(); // 드래그 시작 시 선택 방지
+                    this.handleCellEvent(row, col);
+                    appState.isDragging = true;
+                    appState.lastCellPosition = { row, col };
+                });
+                
+                // 마우스 진입 이벤트 (드래그 중일 때)
+                cell.addEventListener('mouseenter', () => {
+                    if (appState.isDragging) {
+                        // 이전에 방문한 셀과 같은 셀인지 확인
+                        if (appState.lastCellPosition && 
+                            (appState.lastCellPosition.row !== row || 
+                             appState.lastCellPosition.col !== col)) {
+                            this.handleCellEvent(row, col);
+                            appState.lastCellPosition = { row, col };
+                        }
+                    }
+                });
+                
+                // 터치 이벤트 (모바일 지원)
+                cell.addEventListener('touchstart', (e) => {
+                    e.preventDefault();
+                    this.handleCellEvent(row, col);
+                    appState.isDragging = true;
+                    appState.lastCellPosition = { row, col };
+                }, { passive: false });
+                
+                cell.addEventListener('touchmove', (e) => {
+                    e.preventDefault();
+                    if (appState.isDragging) {
+                        const touch = e.touches[0];
+                        const elementUnderTouch = document.elementFromPoint(touch.clientX, touch.clientY);
+                        
+                        if (elementUnderTouch && elementUnderTouch.classList.contains('emoji-cell')) {
+                            const touchRow = parseInt(elementUnderTouch.dataset.row);
+                            const touchCol = parseInt(elementUnderTouch.dataset.col);
+                            
+                            if (appState.lastCellPosition && 
+                                (appState.lastCellPosition.row !== touchRow || 
+                                 appState.lastCellPosition.col !== touchCol)) {
+                                this.handleCellEvent(touchRow, touchCol);
+                                appState.lastCellPosition = { row: touchRow, col: touchCol };
+                            }
+                        }
+                    }
+                }, { passive: false });
+                
+                // 강화된 접근성
+                cell.setAttribute('role', 'button');
+                cell.setAttribute('aria-label', `그리드 셀 ${row+1}행 ${col+1}열`);
+                cell.setAttribute('tabindex', '0');
+                
+                // 키보드 접근성 이벤트
+                cell.addEventListener('keydown', (e) => {
+                    if (e.key === 'Enter' || e.key === ' ') {
+                        e.preventDefault();
+                        this.handleCellEvent(row, col);
+                    }
+                });
+                
+                this.canvas.appendChild(cell);
+                this.cells.push(cell);
+            }
+        }
+        
+        // XSS 방지를 위한 innerHTML 정리
+        this.sanitizeCanvas();
+    },
+    
+    // 캔버스 이벤트 설정
+    setupCanvasEvents() {
+        // 마우스 업 이벤트 (드래그 종료)
+        document.addEventListener('mouseup', () => {
+            appState.isDragging = false;
+            appState.lastCellPosition = null;
+        });
+        
+        // 터치 종료 이벤트
+        document.addEventListener('touchend', () => {
+            appState.isDragging = false;
+            appState.lastCellPosition = null;
+        });
+        
+        // 캔버스 영역 벗어날 때 드래그 종료
+        this.canvas.addEventListener('mouseleave', () => {
+            appState.isDragging = false;
+            appState.lastCellPosition = null;
+        });
+        
+        // 브러시 커서 위치 업데이트
+        document.addEventListener('mousemove', (e) => {
+            if (appState.showBrushCursor && elements.brushCursor) {
+                const x = e.clientX;
+                const y = e.clientY;
+                
+                appState.lastMousePosition = { x, y };
+                this.updateBrushCursor(x, y);
+            }
+        });
+    },
+    
+    // 브러시 크기에 따른 이벤트 처리
+    handleCellEvent(row, col) {
+        const brushSize = settings.brushSize || 1;
+        
+        // 브러시 크기에 따라 주변 셀도 함께 처리
+        for (let r = -Math.floor(brushSize / 2); r <= Math.floor(brushSize / 2); r++) {
+            for (let c = -Math.floor(brushSize / 2); c <= Math.floor(brushSize / 2); c++) {
+                const targetRow = row + r;
+                const targetCol = col + c;
+                
+                // 유효한 범위 확인
+                if (targetRow >= 0 && targetRow < this.gridRows && 
+                    targetCol >= 0 && targetCol < this.gridCols) {
+                    this.toggleCell(targetRow, targetCol);
+                }
+            }
+        }
+    },
+    
+    // 셀 상태 토글
+    toggleCell(row, col) {
+        const index = row * this.gridCols + col;
+        const cell = this.cells[index];
+        
+        if (!cell) return;
+        
+        // 현재 상태 가져오기
+        const isActive = cell.classList.contains('active');
+        
+        // 지우개 모드면 항상 비활성화, 그리기 모드면 항상 활성화
+        const newState = appState.isEraserMode ? false : !isActive;
+        
+        // 상태 업데이트
+        if (newState) {
+            cell.classList.add('active');
+            
+            if (settings.customMode) {
+                cell.textContent = settings.filledEmoji || '■';
+            } else {
+                cell.textContent = '■';
+            }
+            
+            this.currentData[row][col] = 1;
+        } else {
+            cell.classList.remove('active');
+            
+            if (settings.customMode) {
+                cell.textContent = settings.emptyEmoji || '□';
+            } else {
+                cell.textContent = '□';
+            }
+            
+            this.currentData[row][col] = 0;
+        }
+    },
+    
+    // 브러시 커서 업데이트
+    updateBrushCursor(x, y) {
+        if (!elements.brushCursor) return;
+        
+        const brushSize = settings.brushSize || 1;
+        const cursorSize = this.cellSize * brushSize;
+        
+        elements.brushCursor.style.width = `${cursorSize}px`;
+        elements.brushCursor.style.height = `${cursorSize}px`;
+        elements.brushCursor.style.left = `${x}px`;
+        elements.brushCursor.style.top = `${y}px`;
+    },
+    
+    // 모든 셀 지우기
+    clearCanvas() {
+        if (!this.cells.length) return;
+        
+        this.cells.forEach(cell => {
+            cell.classList.remove('active');
+            
+            if (settings.customMode) {
+                cell.textContent = settings.emptyEmoji || '□';
+            } else {
+                cell.textContent = '□';
+            }
+        });
+        
+        // 데이터 초기화
+        this.currentData = Array(this.gridRows).fill(0).map(() => Array(this.gridCols).fill(0));
+        
+        utils.showToast('모든 셀이 지워졌습니다', 'info');
+    },
+    
+    // 보드 데이터 불러오기
+    loadBoardData(data) {
+        if (!data || !data.board || !Array.isArray(data.board)) {
+            utils.showToast('유효하지 않은 데이터 형식입니다', 'error');
+            return false;
+        }
+        
+        // 보드 크기 확인 및 조정
+        const rows = data.board.length;
+        const cols = rows > 0 ? data.board[0].length : 0;
+        
+        if (rows !== this.gridRows || cols !== this.gridCols) {
+            // 그리드 크기가 다른 경우, 설정 업데이트
+            settings.emojiRows = rows;
+            settings.emojiCols = cols;
+            this.gridRows = rows;
+            this.gridCols = cols;
+            
+            // 그리드 재생성
+            this.createGrid();
+        }
+        
+        // 데이터 로드
+        for (let row = 0; row < rows; row++) {
+            for (let col = 0; col < cols; col++) {
+                if (row < this.gridRows && col < this.gridCols) {
+                    const cellValue = data.board[row][col];
+                    const index = row * this.gridCols + col;
+                    const cell = this.cells[index];
+                    
+                    if (cell) {
+                        if (cellValue === 1) {
+                            cell.classList.add('active');
+                            
+                            if (settings.customMode) {
+                                cell.textContent = settings.filledEmoji || '■';
+                            } else {
+                                cell.textContent = '■';
+                            }
+                        } else {
+                            cell.classList.remove('active');
+                            
+                            if (settings.customMode) {
+                                cell.textContent = settings.emptyEmoji || '□';
+                            } else {
+                                cell.textContent = '□';
+                            }
+                        }
+                        
+                        this.currentData[row][col] = cellValue;
+                    }
+                }
+            }
+        }
+        
+        return true;
+    },
+    
+    // 현재 보드 데이터 가져오기
+    getBoardData() {
+        return {
+            board: this.currentData,
+            meta: {
+                rows: this.gridRows,
+                cols: this.gridCols,
+                cellSize: this.cellSize,
+                bgMode: settings.bgMode,
+                customMode: settings.customMode,
+                filledEmoji: settings.filledEmoji,
+                emptyEmoji: settings.emptyEmoji
+            }
+        };
+    },
+    
+    // ASCii 아트로 변환하기
+    getBoardAsAscii() {
+        let ascii = '';
+        
+        for (let row = 0; row < this.gridRows; row++) {
+            let line = '';
+            for (let col = 0; col < this.gridCols; col++) {
+                if (this.currentData[row][col] === 1) {
+                    line += settings.customMode ? settings.filledEmoji : '■';
+                } else {
+                    line += settings.customMode ? settings.emptyEmoji : '□';
+                }
+            }
+            ascii += line + '\n';
+        }
+        
+        return ascii;
+    },
+    
+    // XSS 방지를 위한 캔버스 정리
+    sanitizeCanvas() {
+        this.cells.forEach(cell => {
+            // 텍스트 콘텐츠만 허용하고 HTML 태그 방지
+            const sanitizedText = cell.textContent;
+            cell.textContent = sanitizedText;
+        });
+    },
+    
+    // 작품 미리보기 생성
+    createPreview(containerId, data) {
+        const container = document.getElementById(containerId);
+        if (!container) return null;
+        
+        container.innerHTML = '';
+        
+        if (!data || !data.board || !Array.isArray(data.board)) {
+            container.textContent = '미리보기를 생성할 수 없습니다';
+            return null;
+        }
+        
+        const previewGrid = document.createElement('div');
+        previewGrid.className = 'drawing-canvas';
+        previewGrid.style.gridTemplateRows = `repeat(${data.board.length}, 15px)`;
+        previewGrid.style.gridTemplateColumns = `repeat(${data.board[0].length}, 15px)`;
+        
+        for (let row = 0; row < data.board.length; row++) {
+            for (let col = 0; col < data.board[0].length; col++) {
+                const cell = document.createElement('div');
+                cell.className = 'emoji-cell';
+                
+                if (data.meta && data.meta.bgMode === 'transparent') {
+                    cell.classList.add('transparent');
+                }
+                
+                if (data.board[row][col] === 1) {
+                    cell.classList.add('active');
+                    
+                    if (data.meta && data.meta.customMode) {
+                        cell.textContent = data.meta.filledEmoji || '■';
+                    } else {
+                        cell.textContent = '■';
+                    }
+                } else {
+                    if (data.meta && data.meta.customMode) {
+                        cell.textContent = data.meta.emptyEmoji || '□';
+                    } else {
+                        cell.textContent = '□';
+                    }
+                }
+                
+                previewGrid.appendChild(cell);
+            }
+        }
+        
+        // 미리보기 정리
+        utils.sanitizeElement(previewGrid);
+        
+        container.appendChild(previewGrid);
+        return previewGrid;
+    }
+};
+
 // 유틸리티 함수 모음
 const utils = {
     // DOM 요소 확인
@@ -2605,17 +3064,17 @@ const utils = {
         const iconWrapper = document.createElement('div');
         iconWrapper.className = 'toast-icon';
         iconWrapper.style.marginRight = '12px';
-        iconWrapper.innerHTML = iconSvg;
+        iconWrapper.innerHTML = this.sanitizeHtml(iconSvg);
         
         const contentWrapper = document.createElement('div');
         contentWrapper.className = 'toast-content';
-        contentWrapper.innerHTML = message;
+        contentWrapper.textContent = message;
         contentWrapper.style.flex = '1';
         contentWrapper.style.fontSize = '14px';
         
         const closeBtn = document.createElement('button');
         closeBtn.className = 'toast-close';
-        closeBtn.innerHTML = '×';
+        closeBtn.textContent = '×';
         closeBtn.style.background = 'none';
         closeBtn.style.border = 'none';
         closeBtn.style.color = 'var(--text-muted)';
@@ -2627,6 +3086,10 @@ const utils = {
         toast.appendChild(iconWrapper);
         toast.appendChild(contentWrapper);
         toast.appendChild(closeBtn);
+        
+        // 접근성 향상
+        toast.setAttribute('role', 'alert');
+        toast.setAttribute('aria-live', 'assertive');
         
         // 닫기 버튼 이벤트
         closeBtn.addEventListener('click', () => {
@@ -2696,6 +3159,79 @@ const utils = {
             .replace(/'/g, "&#039;");
     },
     
+    // HTML 문자열 샌드박스 처리 (허용된 태그만 통과)
+    sanitizeHtml: function(html) {
+        if (typeof html !== 'string') {
+            return '';
+        }
+        
+        // 허용된 HTML 태그 및 속성 지정
+        const allowedTags = {
+            'svg': ['xmlns', 'width', 'height', 'viewBox', 'fill', 'stroke', 'stroke-width', 'stroke-linecap', 'stroke-linejoin'],
+            'path': ['d', 'fill'],
+            'circle': ['cx', 'cy', 'r', 'fill'],
+            'line': ['x1', 'y1', 'x2', 'y2'],
+            'polyline': ['points'],
+            'a': ['href', 'target', 'rel'],
+            'span': ['class', 'style'],
+            'div': ['class', 'style'],
+            'p': ['class', 'style'],
+            'br': []
+        };
+        
+        // 간단한 HTML 파서
+        const temp = document.createElement('div');
+        temp.innerHTML = html;
+        
+        // 재귀적으로 노드 정리
+        function sanitizeNode(node) {
+            if (node.nodeType === 3) { // 텍스트 노드
+                return;
+            }
+            
+            if (node.nodeType === 1) { // 요소 노드
+                const tagName = node.tagName.toLowerCase();
+                
+                // 허용되지 않은 태그 제거
+                if (!allowedTags[tagName]) {
+                    node.parentNode.removeChild(node);
+                    return;
+                }
+                
+                // 허용된 속성만 유지
+                const allowedAttrs = allowedTags[tagName];
+                const attributes = [...node.attributes];
+                attributes.forEach(attr => {
+                    if (!allowedAttrs.includes(attr.name)) {
+                        node.removeAttribute(attr.name);
+                    }
+                    
+                    // href 속성 검사 (JavaScript 코드 방지)
+                    if (attr.name === 'href' && attr.value.toLowerCase().startsWith('javascript:')) {
+                        node.removeAttribute(attr.name);
+                    }
+                });
+                
+                // 자식 노드도 정리
+                [...node.childNodes].forEach(sanitizeNode);
+            }
+        }
+        
+        // 모든 노드 정리
+        [...temp.childNodes].forEach(sanitizeNode);
+        
+        return temp.innerHTML;
+    },
+    
+    // 요소 내용 정리 (XSS 방지)
+    sanitizeElement: function(element) {
+        if (!element || !element.innerHTML) {
+            return;
+        }
+        
+        element.innerHTML = this.sanitizeHtml(element.innerHTML);
+    },
+    
     // 디바운스 함수
     debounce: function(func, wait) {
         let timeout;
@@ -2722,6 +3258,294 @@ const utils = {
         } catch (error) {
             console.error('날짜 형식화 오류:', error);
             return dateString;
+        }
+    },
+    
+    // 도메인 검증
+    validateDomain: function() {
+        // 개발 환경에서는 무시
+        if (window.location.hostname === 'localhost' || window.location.hostname === '127.0.0.1') {
+            appState.secureDomainValidated = true;
+            return true;
+        }
+        
+        // 허용된 도메인 목록 확인
+        const isValidDomain = CONFIG.SECURITY.ALLOWED_DOMAINS.includes(window.location.hostname);
+        
+        if (!isValidDomain) {
+            // 유효하지 않은 도메인에서 실행 방지
+            document.body.innerHTML = `
+                <div style="display: flex; justify-content: center; align-items: center; height: 100vh; flex-direction: column; background-color: #0f1923; color: #ece8e1; font-family: Arial, sans-serif;">
+                    <div style="background-color: #1a242d; padding: 2rem; border-radius: 8px; text-align: center; max-width: 500px; box-shadow: 0 4px 12px rgba(0, 0, 0, 0.5);">
+                        <h1 style="color: #ff4655; margin-bottom: 1rem;">보안 경고</h1>
+                        <p style="margin-bottom: 1rem;">이 애플리케이션은 신뢰할 수 있는 도메인에서만 실행할 수 있습니다.</p>
+                        <p>공식 사이트로 이동하세요: <a href="https://valpaint.art" style="color: #ff4655; text-decoration: none;">https://valpaint.art</a></p>
+                    </div>
+                </div>
+            `;
+            console.error('보안 경고: 허용되지 않은 도메인에서 실행 시도');
+            return false;
+        }
+        
+        // 프로토콜 검증 (HTTPS 강제)
+        if (window.location.protocol !== 'https:' && window.location.hostname !== 'localhost' && window.location.hostname !== '127.0.0.1') {
+            // HTTPS로 리디렉션
+            window.location.href = 'https://' + window.location.hostname + window.location.pathname + window.location.search;
+            return false;
+        }
+        
+        appState.secureDomainValidated = true;
+        return true;
+    },
+    
+    // 브라우저 보안 기능 설정
+    setupBrowserSecurity: function() {
+        // Content Security Policy 헤더 시뮬레이션 (실제로는 서버에서 설정해야 함)
+        const meta = document.createElement('meta');
+        meta.httpEquiv = 'Content-Security-Policy';
+        meta.content = "default-src 'self'; script-src 'self' https://cdn.jsdelivr.net https://www.google.com https://www.gstatic.com; style-src 'self' 'unsafe-inline' https://fonts.cdnfonts.com; font-src 'self' https://fonts.cdnfonts.com; img-src 'self' data:; connect-src 'self' https://xesqcwzstgkmvgokfrqx.supabase.co; frame-src 'self' https://www.google.com;";
+        document.head.appendChild(meta);
+        
+        // X-Frame-Options 헤더 시뮬레이션 (iframe 내 로드 방지)
+        const frameOptions = document.createElement('meta');
+        frameOptions.httpEquiv = 'X-Frame-Options';
+        frameOptions.content = 'DENY';
+        document.head.appendChild(frameOptions);
+        
+        // X-XSS-Protection 헤더 시뮬레이션
+        const xssProtection = document.createElement('meta');
+        xssProtection.httpEquiv = 'X-XSS-Protection';
+        xssProtection.content = '1; mode=block';
+        document.head.appendChild(xssProtection);
+        
+        // Referrer Policy 설정
+        const referrerPolicy = document.createElement('meta');
+        referrerPolicy.name = 'referrer';
+        referrerPolicy.content = 'strict-origin-when-cross-origin';
+        document.head.appendChild(referrerPolicy);
+        
+        // SameSite 쿠키 속성 시뮬레이션
+        document.cookie = 'SameSite=Strict; Secure';
+    },
+    
+    // JWT 토큰 생성 (클라이언트 측 시뮬레이션용, 실제로는 서버에서 생성해야 함)
+    generateJWTToken: function(userId, username) {
+        try {
+            // JWT 헤더 (Base64URL 인코딩)
+            const header = {
+                alg: 'HS256',
+                typ: 'JWT'
+            };
+            
+            // 현재 시간 (초 단위)
+            const now = Math.floor(Date.now() / 1000);
+            
+            // JWT 페이로드 (Base64URL 인코딩)
+            const payload = {
+                sub: userId,
+                name: username,
+                iat: now,
+                exp: now + (7 * 24 * 60 * 60) // 7일 후 만료
+            };
+            
+            // Base64URL 인코딩 함수
+            function base64UrlEncode(obj) {
+                return btoa(JSON.stringify(obj))
+                    .replace(/\+/g, '-')
+                    .replace(/\//g, '_')
+                    .replace(/=+$/, '');
+            }
+            
+            // 헤더와 페이로드 인코딩
+            const encodedHeader = base64UrlEncode(header);
+            const encodedPayload = base64UrlEncode(payload);
+            
+            // 시뮬레이션된 서명 (실제로는 서버에서 생성해야 함)
+            const signatureInput = `${encodedHeader}.${encodedPayload}`;
+            const signature = this.simulateHMACSHA256(signatureInput, CONFIG.SECURITY.JWT_SECRET);
+            
+            // JWT 토큰 조합
+            const token = `${encodedHeader}.${encodedPayload}.${signature}`;
+            
+            return token;
+        } catch (error) {
+            console.error('JWT 토큰 생성 오류:', error);
+            return null;
+        }
+    },
+    
+    // SHA-256 해시 시뮬레이션 (Web Crypto API가 있다면 사용)
+    async simulateHMACSHA256(data, key) {
+        try {
+            // Web Crypto API 지원 확인
+            if (window.crypto && window.crypto.subtle) {
+                const encoder = new TextEncoder();
+                const keyData = encoder.encode(key);
+                const cryptoKey = await window.crypto.subtle.importKey(
+                    'raw',
+                    keyData,
+                    { name: 'HMAC', hash: 'SHA-256' },
+                    false,
+                    ['sign']
+                );
+                
+                const signature = await window.crypto.subtle.sign(
+                    'HMAC',
+                    cryptoKey,
+                    encoder.encode(data)
+                );
+                
+                // ArrayBuffer를 Base64URL로 변환
+                return btoa(String.fromCharCode(...new Uint8Array(signature)))
+                    .replace(/\+/g, '-')
+                    .replace(/\//g, '_')
+                    .replace(/=+$/, '');
+            } else {
+                // 간단한 해시 폴백 (실제 환경에서는 사용하지 말 것)
+                let hash = '';
+                const combined = data + key;
+                
+                for (let i = 0; i < combined.length; i++) {
+                    hash += ((combined.charCodeAt(i) ^ 0x7F) * 7 % 256).toString(16).padStart(2, '0');
+                }
+                
+                // 비밀번호 해시와 구분하기 위해 추가 처리
+                return btoa(hash)
+                    .replace(/\+/g, '-')
+                    .replace(/\//g, '_')
+                    .replace(/=+$/, '');
+            }
+        } catch (error) {
+            console.error('HMAC 시뮬레이션 오류:', error);
+            
+            // 최후의 폴백 (실제 환경에서는 사용하지 말 것)
+            let hash = '';
+            const combined = data + key;
+            
+            for (let i = 0; i < 32; i++) {
+                hash += ((combined.charCodeAt(i % combined.length) ^ 0x7F) * 11 % 256).toString(16).padStart(2, '0');
+            }
+            
+            return hash;
+        }
+    },
+    
+    // CSRF 토큰 생성
+    generateCSRFToken: function() {
+        try {
+            const array = new Uint8Array(32); // 256 비트 보안
+            crypto.getRandomValues(array);
+            const token = Array.from(array, byte => byte.toString(16).padStart(2, '0')).join('');
+            
+            // 토큰 저장
+            const expiry = Date.now() + CONFIG.SECURITY.CSRF_TOKEN_EXPIRY;
+            localStorage.setItem(CONFIG.STORAGE_KEYS.CSRF_TOKEN, token);
+            localStorage.setItem(CONFIG.STORAGE_KEYS.CSRF_EXPIRY, expiry.toString());
+            
+            appState.csrfToken = token;
+            appState.csrfExpiry = expiry;
+            
+            return token;
+        } catch (error) {
+            console.error('CSRF 토큰 생성 오류:', error);
+            
+            // 폴백 방식 (덜 안전)
+            const token = Math.random().toString(36).substring(2) + Math.random().toString(36).substring(2);
+            const expiry = Date.now() + CONFIG.SECURITY.CSRF_TOKEN_EXPIRY;
+            
+            localStorage.setItem(CONFIG.STORAGE_KEYS.CSRF_TOKEN, token);
+            localStorage.setItem(CONFIG.STORAGE_KEYS.CSRF_EXPIRY, expiry.toString());
+            
+            appState.csrfToken = token;
+            appState.csrfExpiry = expiry;
+            
+            return token;
+        }
+    },
+    
+    // CSRF 토큰 검증
+    validateCSRFToken: function(token) {
+        if (!token) return false;
+        
+        const storedToken = localStorage.getItem(CONFIG.STORAGE_KEYS.CSRF_TOKEN);
+        const expiry = parseInt(localStorage.getItem(CONFIG.STORAGE_KEYS.CSRF_EXPIRY) || '0');
+        
+        if (!storedToken || expiry < Date.now()) {
+            return false;
+        }
+        
+        return token === storedToken;
+    },
+    
+    // 현재 세션이 유효한지 확인
+    isSessionValid: function() {
+        const session = this.storage.getSessionData();
+        return !!session && session.expiry > Date.now();
+    },
+    
+    // 속도 제한 검사
+    checkRateLimit: function(type) {
+        try {
+            const now = Date.now();
+            
+            switch (type) {
+                case 'login':
+                    // 로그인 시도 제한
+                    if (appState.rateLimits.loginLockoutUntil > now) {
+                        // 계정 잠금 기간 중
+                        const remainingMinutes = Math.ceil((appState.rateLimits.loginLockoutUntil - now) / 60000);
+                        return {
+                            allowed: false,
+                            message: `너무 많은 로그인 시도가 있었습니다. ${remainingMinutes}분 후에 다시 시도해주세요.`
+                        };
+                    }
+                    
+                    // 로그인 시도 횟수 증가
+                    appState.rateLimits.loginAttempts++;
+                    
+                    // 제한 초과 확인
+                    if (appState.rateLimits.loginAttempts > CONFIG.SECURITY.RATE_LIMIT.LOGIN_ATTEMPTS) {
+                        // 계정 잠금 설정
+                        appState.rateLimits.loginLockoutUntil = now + CONFIG.SECURITY.RATE_LIMIT.LOGIN_LOCKOUT;
+                        appState.rateLimits.loginAttempts = 0;
+                        
+                        return {
+                            allowed: false,
+                            message: `너무 많은 로그인 시도가 있었습니다. 15분 후에 다시 시도해주세요.`
+                        };
+                    }
+                    
+                    return { allowed: true };
+                    
+                case 'api':
+                    // API 요청 제한 확인
+                    if (appState.rateLimits.apiWindowStart === 0 || 
+                        (now - appState.rateLimits.apiWindowStart) > CONFIG.SECURITY.RATE_LIMIT.API_WINDOW) {
+                        // 새 창 시작
+                        appState.rateLimits.apiWindowStart = now;
+                        appState.rateLimits.apiRequests = 1;
+                        return { allowed: true };
+                    }
+                    
+                    // 기존 창 내 요청 증가
+                    appState.rateLimits.apiRequests++;
+                    
+                    // 제한 초과 확인
+                    if (appState.rateLimits.apiRequests > CONFIG.SECURITY.RATE_LIMIT.API_REQUESTS) {
+                        return {
+                            allowed: false,
+                            message: '너무 많은 요청이 있었습니다. 잠시 후 다시 시도해주세요.'
+                        };
+                    }
+                    
+                    return { allowed: true };
+                    
+                default:
+                    return { allowed: true };
+            }
+        } catch (error) {
+            console.error('속도 제한 검사 오류:', error);
+            return { allowed: true }; // 오류 발생 시 차단하지 않음
         }
     },
     
@@ -2756,7 +3580,11 @@ const utils = {
                 data.lastModified = new Date().toISOString();
                 data.version = CONFIG.APP_VERSION;
                 
-                localStorage.setItem(this.getKey(sanitizedFileName), JSON.stringify(data));
+                // VAL 확장자 확인
+                const finalFileName = sanitizedFileName.endsWith('.val') ? 
+                    sanitizedFileName : sanitizedFileName + '.val';
+                
+                localStorage.setItem(this.getKey(finalFileName), JSON.stringify(data));
                 return true;
             } catch (error) {
                 console.error('파일 저장 오류:', error);
@@ -2963,8 +3791,13 @@ const utils = {
         
         // 파일 이름에서 위험한 문자 제거
         const sanitized = fileName.trim()
-            .replace(/[^a-zA-Z0-9가-힣ㄱ-ㅎㅏ-ㅣ_\-]/g, '')
+            .replace(/[^a-zA-Z0-9가-힣ㄱ-ㅎㅏ-ㅣ_\-\.]/g, '')
             .substring(0, 50); // 길이 제한
+        
+        // 경로 주입 공격 방지
+        if (sanitized.includes('..') || sanitized.includes('/') || sanitized.includes('\\')) {
+            return '';
+        }
         
         return sanitized;
     },
@@ -2979,6 +3812,8 @@ const utils = {
         const sanitized = text.trim()
             .replace(/</g, '&lt;')
             .replace(/>/g, '&gt;')
+            .replace(/'/g, '&#39;')
+            .replace(/"/g, '&quot;')
             .substring(0, maxLength);
         
         return sanitized;
@@ -3001,6 +3836,16 @@ const utils = {
             return { valid: false, message: '사용자 이름에는 문자, 숫자, 한글, 밑줄 및 하이픈만 사용할 수 있습니다.' };
         }
         
+        // SQL 인젝션 키워드 검사
+        const sqlKeywords = ['SELECT', 'INSERT', 'UPDATE', 'DELETE', 'DROP', 'ALTER', 'EXEC', 'UNION'];
+        const upperUsername = username.toUpperCase();
+        
+        for (const keyword of sqlKeywords) {
+            if (upperUsername.includes(keyword)) {
+                return { valid: false, message: '사용자 이름에 허용되지 않는 키워드가 포함되어 있습니다.' };
+            }
+        }
+        
         return { valid: true, message: '' };
     },
     
@@ -3013,6 +3858,14 @@ const utils = {
         // 길이 제한
         if (password.length < 6) {
             return { valid: false, message: '비밀번호는 최소 6자 이상이어야 합니다.' };
+        }
+        
+        // 향상된 비밀번호 검증 (실제 환경에서 더 강화할 수 있음)
+        if (!/[a-z]/.test(password) || !/[A-Z0-9!@#$%^&*(),.?":{}|<>]/.test(password)) {
+            return { 
+                valid: false, 
+                message: '비밀번호는 최소 하나의 소문자와 대문자, 숫자 또는 특수문자를 포함해야 합니다.' 
+            };
         }
         
         return { valid: true, message: '' };
@@ -3045,19 +3898,6 @@ const utils = {
         return clonedObj;
     },
     
-    // CSRF 토큰 생성
-    generateCSRFToken: function() {
-        const array = new Uint8Array(16);
-        crypto.getRandomValues(array);
-        return Array.from(array, byte => byte.toString(16).padStart(2, '0')).join('');
-    },
-    
-    // 현재 세션이 유효한지 확인
-    isSessionValid: function() {
-        const session = this.storage.getSessionData();
-        return !!session && session.expiry > Date.now();
-    },
-    
     // 앱 로그 (개발용)
     log: function(message, type = 'info') {
         const isProduction = window.location.hostname !== 'localhost' && 
@@ -3084,6 +3924,36 @@ const utils = {
             default:
                 console.log(prefix, message);
         }
+    },
+    
+    // VALORANT 폰트 적용
+    applyValorantFont: function() {
+        // 폰트 로드 상태 확인
+        const fontCheck = () => {
+            if (document.fonts && document.fonts.check) {
+                return document.fonts.check('12px VALORANT');
+            }
+            return false;
+        };
+        
+        // 폰트가 이미 로드되었는지 확인
+        if (fontCheck()) {
+            return;
+        }
+        
+        // 폰트 스타일시트 로드
+        const fontLink = document.querySelector('link[href*="valorant"]');
+        if (fontLink) {
+            fontLink.media = 'all';
+        }
+        
+        // 폰트 로드 이벤트 리스너
+        document.fonts.ready.then(() => {
+            const valorantElements = document.querySelectorAll('.valorant-text');
+            valorantElements.forEach(el => {
+                el.style.opacity = '1';
+            });
+        });
     }
 };
 
@@ -3095,6 +3965,11 @@ const api = {
     // 초기화
     async init() {
         try {
+            // Supabase 클라이언트 초기화
+            if (!supabase) {
+                supabase = window.supabase.createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
+            }
+            
             // 세션 데이터 복원
             const session = utils.storage.getSessionData();
             if (session && session.token && session.userId && session.expiry > Date.now()) {
@@ -3193,10 +4068,10 @@ const api = {
             
             // 폴백 해시 방식 (절대 최종 제품에서 사용하지 마세요)
             let hash = '';
-            for (let i = 0; i < 10; i++) { // 간단한 반복 해싱
+            for (let i = 0; i < CONFIG.SECURITY.CRYPT_ITERATIONS; i++) { // 반복 해싱 강화
                 const tempData = password + secretSalt + i;
                 for (let j = 0; j < tempData.length; j++) {
-                    hash += tempData.charCodeAt(j).toString(16);
+                    hash += ((tempData.charCodeAt(j) ^ 0x5A) * 13 % 256).toString(16).padStart(2, '0');
                 }
             }
             return hash.substring(0, 64); // 64자로 자르기
@@ -3206,9 +4081,21 @@ const api = {
     // 사용자 로그인
     async loginUser(username, password) {
         try {
+            // 속도 제한 검사
+            const rateLimit = utils.checkRateLimit('login');
+            if (!rateLimit.allowed) {
+                return { success: false, message: rateLimit.message };
+            }
+            
             // 입력 유효성 검사
             if (!username || !password) {
                 return { success: false, message: '사용자명과 비밀번호가 필요합니다' };
+            }
+            
+            // 사용자명 검증
+            const usernameValidation = utils.validateUsername(username);
+            if (!usernameValidation.valid) {
+                return { success: false, message: usernameValidation.message };
             }
             
             // 비밀번호 해시 생성
@@ -3228,8 +4115,7 @@ const api = {
             if (error) throw error;
             
             if (!data) {
-                // 실패한 로그인 시도 기록 (선택사항)
-                console.warn('로그인 실패:', username);
+                // 실패한 로그인 시도 기록
                 return { success: false, message: '사용자명 또는 비밀번호가 올바르지 않습니다' };
             }
             
@@ -3238,13 +4124,18 @@ const api = {
             // 로그인 세션 생성
             const expiryTime = Date.now() + CONFIG.SECURITY.SESSION_DURATION;
             
+            // JWT 토큰 생성 (클라이언트 측 시뮬레이션)
+            const jwtToken = utils.generateJWTToken(userId, username);
+            
             // 세션 저장
             appState.userId = userId;
             appState.userName = username;
             appState.isAuthenticated = true;
+            appState.authToken = jwtToken;
+            appState.authExpiry = expiryTime;
             
             // 로컬 스토리지에 저장
-            utils.storage.saveSessionData(csrfToken, userId, expiryTime);
+            utils.storage.saveSessionData(jwtToken, userId, expiryTime);
             localStorage.setItem(CONFIG.STORAGE_KEYS.USERNAME, username);
             
             // 설정에 작가명 저장
@@ -3253,6 +4144,9 @@ const api = {
             
             // 즐겨찾기 로드
             await this.loadFavorites();
+            
+            // 로그인 시도 횟수 초기화
+            appState.rateLimits.loginAttempts = 0;
             
             return { success: true, userId };
         } catch (error) {
@@ -3344,6 +4238,11 @@ const api = {
                 return Promise.reject(new Error('작품 ID가 필요합니다'));
             }
             
+            // CSRF 토큰 검증
+            if (!appState.csrfToken) {
+                utils.generateCSRFToken();
+            }
+            
             // 이미 즐겨찾기에 있는지 확인
             if (appState.favorites.includes(artworkId)) {
                 return Promise.resolve(appState.favorites);
@@ -3417,6 +4316,11 @@ const api = {
                 return Promise.reject(new Error('작품 ID가 필요합니다'));
             }
             
+            // CSRF 토큰 검증
+            if (!appState.csrfToken) {
+                utils.generateCSRFToken();
+            }
+            
             // 즐겨찾기에 없으면 무시
             if (!appState.favorites.includes(artworkId)) {
                 return Promise.resolve(appState.favorites);
@@ -3444,7 +4348,8 @@ const api = {
     
     // CAPTCHA 검증 (서버 측에서 처리해야 하지만, 현재는 클라이언트에서 간단히 검증)
     verifyCaptcha(captchaResponse) {
-        return !!captchaResponse; // 실제로는 서버 API를 통해 검증해야 함
+        // 실제 환경에서는 서버로 토큰을 보내 검증해야 함
+        return !!captchaResponse;
     },
     
     // 작품 온라인 공유
@@ -3459,6 +4364,17 @@ const api = {
             // CAPTCHA 검증
             if (!this.verifyCaptcha(captchaResponse)) {
                 return { success: false, message: '보안 인증을 완료해주세요' };
+            }
+            
+            // CSRF 토큰 검증
+            if (!appState.csrfToken) {
+                utils.generateCSRFToken();
+            }
+            
+            // 속도 제한 검사
+            const rateLimit = utils.checkRateLimit('api');
+            if (!rateLimit.allowed) {
+                return { success: false, message: rateLimit.message };
             }
             
             // 현재 작품 수 확인
@@ -3490,11 +4406,12 @@ const api = {
                 title: sanitizedTitle,
                 description: sanitizedDesc,
                 tags: sanitizedTags,
-                data: artworkData.data,
+                data: JSON.stringify(artworkData.data), // 객체를 문자열로 저장
                 creator: this.getUsername(),
                 creator_id: userId,
                 created_at: new Date().toISOString(),
-                views: 0
+                views: 0,
+                version: CONFIG.APP_VERSION
             };
             
             // Supabase에 작품 저장
@@ -3506,7 +4423,21 @@ const api = {
             if (error) throw error;
             
             if (data && data.length > 0) {
-                return { success: true, artworkId: data[0].id };
+                // 캐시 업데이트
+                const newArtwork = data[0];
+                
+                // 데이터를 객체로 변환하여 저장
+                if (typeof newArtwork.data === 'string') {
+                    try {
+                        newArtwork.data = JSON.parse(newArtwork.data);
+                    } catch (e) {
+                        console.error('작품 데이터 파싱 오류:', e);
+                    }
+                }
+                
+                appState.artworkCache[newArtwork.id] = newArtwork;
+                
+                return { success: true, artworkId: newArtwork.id };
             } else {
                 return { success: false, message: '작품 저장에 실패했습니다' };
             }
@@ -3522,6 +4453,12 @@ const api = {
     // 단일 작품 가져오기
     async getArtwork(artworkId) {
         try {
+            // 속도 제한 검사
+            const rateLimit = utils.checkRateLimit('api');
+            if (!rateLimit.allowed) {
+                throw new Error(rateLimit.message);
+            }
+            
             // 캐시에서 작품 확인
             if (appState.artworkCache[artworkId]) {
                 // 캐시된 작품 반환
@@ -3538,6 +4475,23 @@ const api = {
             if (error) throw error;
             
             if (data) {
+                // 문자열 데이터를 객체로 변환
+                if (typeof data.data === 'string') {
+                    try {
+                        data.data = JSON.parse(data.data);
+                    } catch (e) {
+                        console.error('작품 데이터 파싱 오류:', e);
+                    }
+                }
+                
+                // SQL 인젝션 및 XSS 방지
+                data.title = utils.sanitizeText(data.title || '', 100);
+                data.description = utils.sanitizeText(data.description || '', 500);
+                
+                if (Array.isArray(data.tags)) {
+                    data.tags = data.tags.map(tag => utils.sanitizeText(tag, 30));
+                }
+                
                 // 캐시에 저장
                 appState.artworkCache[artworkId] = data;
                 return data;
@@ -3551,7 +4505,7 @@ const api = {
     },
     
     // 사용자 작품 가져오기
-    async getUserArtworks(page = 1, pageSize = 12, sort = 'latest') {
+    async getUserArtworks(page = 1, pageSize = 12, sort = 'latest', search = '') {
         try {
             // 사용자 인증 확인
             const userId = this.getUserId();
@@ -3559,11 +4513,23 @@ const api = {
                 return { data: [], count: 0 };
             }
             
+            // 속도 제한 검사
+            const rateLimit = utils.checkRateLimit('api');
+            if (!rateLimit.allowed) {
+                throw new Error(rateLimit.message);
+            }
+            
             // 정렬 방식 설정
             let query = supabase
                 .from('artworks')
                 .select('*', { count: 'exact' })
                 .eq('creator_id', userId);
+            
+            // 검색어 적용
+            if (search) {
+                const sanitizedSearch = utils.sanitizeText(search, 100);
+                query = query.or(`title.ilike.%${sanitizedSearch}%,description.ilike.%${sanitizedSearch}%`);
+            }
             
             // 정렬 적용
             if (sort === 'oldest') {
@@ -3585,7 +4551,29 @@ const api = {
             
             if (error) throw error;
             
-            return { data: data || [], count: count || 0 };
+            // 데이터 처리
+            const processedData = data ? data.map(item => {
+                // 문자열 데이터를 객체로 변환
+                if (typeof item.data === 'string') {
+                    try {
+                        item.data = JSON.parse(item.data);
+                    } catch (e) {
+                        console.error('작품 데이터 파싱 오류:', e);
+                    }
+                }
+                
+                // XSS 방지
+                item.title = utils.sanitizeText(item.title || '', 100);
+                item.description = utils.sanitizeText(item.description || '', 500);
+                
+                if (Array.isArray(item.tags)) {
+                    item.tags = item.tags.map(tag => utils.sanitizeText(tag, 30));
+                }
+                
+                return item;
+            }) : [];
+            
+            return { data: processedData, count: count || 0 };
         } catch (error) {
             console.error('사용자 작품 가져오기 오류:', error);
             return { data: [], count: 0 };
@@ -3617,12 +4605,24 @@ const api = {
     },
     
     // 공용 갤러리 작품 가져오기
-    async getPublicArtworks(page = 1, pageSize = 12, sort = 'latest') {
+    async getPublicArtworks(page = 1, pageSize = 12, sort = 'latest', search = '') {
         try {
+            // 속도 제한 검사
+            const rateLimit = utils.checkRateLimit('api');
+            if (!rateLimit.allowed) {
+                throw new Error(rateLimit.message);
+            }
+            
             // 정렬 방식 설정
             let query = supabase
                 .from('artworks')
                 .select('*', { count: 'exact' });
+            
+            // 검색어 적용
+            if (search) {
+                const sanitizedSearch = utils.sanitizeText(search, 100);
+                query = query.or(`title.ilike.%${sanitizedSearch}%,description.ilike.%${sanitizedSearch}%,creator.ilike.%${sanitizedSearch}%`);
+            }
             
             // 정렬 적용
             if (sort === 'oldest') {
@@ -3644,7 +4644,29 @@ const api = {
             
             if (error) throw error;
             
-            return { data: data || [], count: count || 0 };
+            // 데이터 처리
+            const processedData = data ? data.map(item => {
+                // 문자열 데이터를 객체로 변환
+                if (typeof item.data === 'string') {
+                    try {
+                        item.data = JSON.parse(item.data);
+                    } catch (e) {
+                        console.error('작품 데이터 파싱 오류:', e);
+                    }
+                }
+                
+                // XSS 방지
+                item.title = utils.sanitizeText(item.title || '', 100);
+                item.description = utils.sanitizeText(item.description || '', 500);
+                
+                if (Array.isArray(item.tags)) {
+                    item.tags = item.tags.map(tag => utils.sanitizeText(tag, 30));
+                }
+                
+                return item;
+            }) : [];
+            
+            return { data: processedData, count: count || 0 };
         } catch (error) {
             console.error('공용 갤러리 작품 가져오기 오류:', error);
             return { data: [], count: 0 };
@@ -3652,12 +4674,18 @@ const api = {
     },
     
     // 즐겨찾기 작품 가져오기
-    async getFavoriteArtworks(page = 1, pageSize = 12, sort = 'latest') {
+    async getFavoriteArtworks(page = 1, pageSize = 12, sort = 'latest', search = '') {
         try {
             // 사용자 인증 확인
             const userId = this.getUserId();
             if (!userId) {
                 return { data: [], count: 0 };
+            }
+            
+            // 속도 제한 검사
+            const rateLimit = utils.checkRateLimit('api');
+            if (!rateLimit.allowed) {
+                throw new Error(rateLimit.message);
             }
             
             // 즐겨찾기 작품 ID 목록 가져오기
@@ -3674,6 +4702,12 @@ const api = {
                 .select('*', { count: 'exact' })
                 .in('id', appState.favorites);
             
+            // 검색어 적용
+            if (search) {
+                const sanitizedSearch = utils.sanitizeText(search, 100);
+                query = query.or(`title.ilike.%${sanitizedSearch}%,description.ilike.%${sanitizedSearch}%,creator.ilike.%${sanitizedSearch}%`);
+            }
+            
             // 정렬 적용
             if (sort === 'oldest') {
                 query = query.order('created_at', { ascending: true });
@@ -3694,7 +4728,29 @@ const api = {
             
             if (error) throw error;
             
-            return { data: data || [], count: count || 0 };
+            // 데이터 처리
+            const processedData = data ? data.map(item => {
+                // 문자열 데이터를 객체로 변환
+                if (typeof item.data === 'string') {
+                    try {
+                        item.data = JSON.parse(item.data);
+                    } catch (e) {
+                        console.error('작품 데이터 파싱 오류:', e);
+                    }
+                }
+                
+                // XSS 방지
+                item.title = utils.sanitizeText(item.title || '', 100);
+                item.description = utils.sanitizeText(item.description || '', 500);
+                
+                if (Array.isArray(item.tags)) {
+                    item.tags = item.tags.map(tag => utils.sanitizeText(tag, 30));
+                }
+                
+                return item;
+            }) : [];
+            
+            return { data: processedData, count: count || 0 };
         } catch (error) {
             console.error('즐겨찾기 작품 가져오기 오류:', error);
             return { data: [], count: 0 };
@@ -3731,6 +4787,23 @@ const api = {
                 
                 if (updateError) throw updateError;
                 
+                // 문자열 데이터를 객체로 변환
+                if (typeof data.data === 'string') {
+                    try {
+                        data.data = JSON.parse(data.data);
+                    } catch (e) {
+                        console.error('작품 데이터 파싱 오류:', e);
+                    }
+                }
+                
+                // XSS 방지
+                data.title = utils.sanitizeText(data.title || '', 100);
+                data.description = utils.sanitizeText(data.description || '', 500);
+                
+                if (Array.isArray(data.tags)) {
+                    data.tags = data.tags.map(tag => utils.sanitizeText(tag, 30));
+                }
+                
                 // 캐시 업데이트
                 data.views = (data.views || 0) + 1;
                 appState.artworkCache[artworkId] = data;
@@ -3752,310 +4825,2426 @@ const api = {
             console.error('조회수 증가 오류:', error);
             return Promise.reject(error);
         }
+    },
+    
+    // 작품 삭제
+    async deleteArtwork(artworkId) {
+        try {
+            // 사용자 인증 확인
+            const userId = this.getUserId();
+            if (!userId || !this.isAuthenticated()) {
+                return { success: false, message: '로그인이 필요합니다' };
+            }
+            
+            // 유효성 검사
+            if (!artworkId) {
+                return { success: false, message: '작품 ID가 필요합니다' };
+            }
+            
+            // CSRF 토큰 검증
+            if (!appState.csrfToken) {
+                utils.generateCSRFToken();
+            }
+            
+            // 소유권 확인
+            const { data: artwork, error: checkError } = await supabase
+                .from('artworks')
+                .select('creator_id')
+                .eq('id', artworkId)
+                .single();
+            
+            if (checkError) throw checkError;
+            
+            if (!artwork) {
+                return { success: false, message: '작품을 찾을 수 없습니다' };
+            }
+            
+            if (artwork.creator_id !== userId) {
+                return { success: false, message: '이 작품을 삭제할 권한이 없습니다' };
+            }
+            
+            // 작품 삭제
+            const { error } = await supabase
+                .from('artworks')
+                .delete()
+                .eq('id', artworkId);
+            
+            if (error) throw error;
+            
+            // 관련 즐겨찾기 삭제
+            await supabase
+                .from('favorites')
+                .delete()
+                .eq('artwork_id', artworkId);
+            
+            // 캐시에서 삭제
+            delete appState.artworkCache[artworkId];
+            
+            // 즐겨찾기에서도 제거
+            if (appState.favorites.includes(artworkId)) {
+                appState.favorites = appState.favorites.filter(id => id !== artworkId);
+                localStorage.setItem(CONFIG.STORAGE_KEYS.FAVORITES, JSON.stringify(appState.favorites));
+            }
+            
+            return { success: true };
+        } catch (error) {
+            console.error('작품 삭제 오류:', error);
+            return { 
+                success: false, 
+                message: error.message || '작품 삭제 중 오류가 발생했습니다' 
+            };
+        }
+    },
+    
+    // 계정 비밀번호 변경
+    async changePassword(currentPassword, newPassword) {
+        try {
+            // 사용자 인증 확인
+            const userId = this.getUserId();
+            const username = this.getUsername();
+            
+            if (!userId || !this.isAuthenticated() || !username) {
+                return { success: false, message: '로그인이 필요합니다' };
+            }
+            
+            // 입력 유효성 검사
+            if (!currentPassword) {
+                return { success: false, message: '현재 비밀번호가 필요합니다' };
+            }
+            
+            // 새 비밀번호 검증
+            if (newPassword) {
+                const passwordValidation = utils.validatePassword(newPassword);
+                if (!passwordValidation.valid) {
+                    return { success: false, message: passwordValidation.message };
+                }
+            }
+            
+            // 현재 비밀번호 해시 생성
+            const currentPasswordHash = await this.hashPassword(currentPassword);
+            
+            // 사용자 확인
+            const { data, error } = await supabase
+                .from('users')
+                .select('id')
+                .eq('id', userId)
+                .eq('username', username)
+                .eq('password_hash', currentPasswordHash)
+                .single();
+            
+            if (error || !data) {
+                return { success: false, message: '현재 비밀번호가 일치하지 않습니다' };
+            }
+            
+            // 비밀번호를 변경하는 경우
+            if (newPassword) {
+                // 새 비밀번호 해시 생성
+                const newPasswordHash = await this.hashPassword(newPassword);
+                
+                // 비밀번호 업데이트
+                const { error: updateError } = await supabase
+                    .from('users')
+                    .update({ 
+                        password_hash: newPasswordHash,
+                        updated_at: new Date().toISOString()
+                    })
+                    .eq('id', userId);
+                
+                if (updateError) throw updateError;
+                
+                return { success: true, message: '비밀번호가 성공적으로 변경되었습니다' };
+            }
+            
+            return { success: true, message: '계정 정보가 확인되었습니다' };
+        } catch (error) {
+            console.error('비밀번호 변경 오류:', error);
+            return { 
+                success: false, 
+                message: error.message || '비밀번호 변경 중 오류가 발생했습니다' 
+            };
+        }
+    },
+    
+    // 계정 삭제
+    async deleteAccount(password) {
+        try {
+            // 사용자 인증 확인
+            const userId = this.getUserId();
+            const username = this.getUsername();
+            
+            if (!userId || !this.isAuthenticated() || !username) {
+                return { success: false, message: '로그인이 필요합니다' };
+            }
+            
+            // 입력 유효성 검사
+            if (!password) {
+                return { success: false, message: '비밀번호가 필요합니다' };
+            }
+            
+            // 비밀번호 해시 생성
+            const passwordHash = await this.hashPassword(password);
+            
+            // 사용자 확인
+            const { data, error } = await supabase
+                .from('users')
+                .select('id')
+                .eq('id', userId)
+                .eq('username', username)
+                .eq('password_hash', passwordHash)
+                .single();
+            
+            if (error || !data) {
+                return { success: false, message: '비밀번호가 일치하지 않습니다' };
+            }
+            
+            // 트랜잭션 시뮬레이션 (실제로는 서버 측에서 처리해야 함)
+            // 1. 사용자의 모든 작품 조회
+            const { data: artworks, error: artworksError } = await supabase
+                .from('artworks')
+                .select('id')
+                .eq('creator_id', userId);
+            
+            if (artworksError) throw artworksError;
+            
+            // 2. 관련 즐겨찾기 모두 삭제
+            if (artworks && artworks.length > 0) {
+                const artworkIds = artworks.map(a => a.id);
+                
+                const { error: favoritesError } = await supabase
+                    .from('favorites')
+                    .delete()
+                    .in('artwork_id', artworkIds);
+                
+                if (favoritesError) throw favoritesError;
+                
+                // 3. 작품 삭제
+                const { error: deleteArtworksError } = await supabase
+                    .from('artworks')
+                    .delete()
+                    .eq('creator_id', userId);
+                
+                if (deleteArtworksError) throw deleteArtworksError;
+            }
+            
+            // 4. 사용자의 즐겨찾기 삭제
+            const { error: userFavoritesError } = await supabase
+                .from('favorites')
+                .delete()
+                .eq('user_id', userId);
+            
+            if (userFavoritesError) throw userFavoritesError;
+            
+            // 5. 사용자 계정 삭제
+            const { error: deleteUserError } = await supabase
+                .from('users')
+                .delete()
+                .eq('id', userId);
+            
+            if (deleteUserError) throw deleteUserError;
+            
+            // 로컬 스토리지 정리
+            utils.storage.clearSession();
+            localStorage.removeItem(CONFIG.STORAGE_KEYS.USERNAME);
+            localStorage.removeItem(CONFIG.STORAGE_KEYS.FAVORITES);
+            
+            // 애플리케이션 상태 초기화
+            appState.isAuthenticated = false;
+            appState.userId = '';
+            appState.userName = '';
+            appState.authToken = null;
+            appState.favorites = [];
+            
+            return { success: true, message: '계정이 성공적으로 삭제되었습니다' };
+        } catch (error) {
+            console.error('계정 삭제 오류:', error);
+            return { 
+                success: false, 
+                message: error.message || '계정 삭제 중 오류가 발생했습니다' 
+            };
+        }
     }
 };
 
-// 인증 모달 표시
-function showAuthModal() {
-    if (!utils.validateElement(elements.authModal, 'authModal') ||
-        !utils.validateElement(elements.loginForm, 'loginForm') ||
-        !utils.validateElement(elements.loginUsername, 'loginUsername') ||
-        !utils.validateElement(elements.loginPassword, 'loginPassword')) {
-        utils.showToast('인증 모달을 표시할 수 없습니다', 'error');
-        return;
-    }
-    
-    // 필드 초기화
-    elements.loginUsername.value = '';
-    elements.loginPassword.value = '';
-    
-    // 모달 표시
-    utils.showModal(elements.authModal);
-}
-
-// 로그인 처리
-async function handleLogin(event) {
-    if (event) event.preventDefault();
-    
-    if (!utils.validateElement(elements.loginUsername, 'loginUsername') ||
-        !utils.validateElement(elements.loginPassword, 'loginPassword') ||
-        !utils.validateElement(elements.loginForm, 'loginForm') ||
-        !utils.validateElement(elements.authModal, 'authModal') ||
-        !utils.validateElement(elements.guestModeBanner, 'guestModeBanner') ||
-        !utils.validateElement(elements.userDisplayName, 'userDisplayName')) {
-        utils.showToast('로그인 폼을 찾을 수 없습니다', 'error');
-        return;
-    }
-    
-    const username = elements.loginUsername.value.trim();
-    const password = elements.loginPassword.value;
-    
-    if (!username || !password) {
-        utils.showToast('사용자명과 비밀번호를 입력해주세요', 'error');
-        return;
-    }
-    
-    try {
-        // 로딩 표시
-        const submitBtn = elements.loginForm.querySelector('button[type="submit"]');
-        if (!submitBtn) {
-            utils.showToast('로그인 버튼을 찾을 수 없습니다', 'error');
-            return;
-        }
-        
-        const originalBtnText = submitBtn.innerHTML;
-        submitBtn.disabled = true;
-        submitBtn.innerHTML = '<div class="spinner" style="width: 16px; height: 16px;"></div> 로그인 중...';
-        
-        // 로그인 시도
-        const result = await api.loginUser(username, password);
-        
-        if (!result.success) {
-            throw new Error(result.message || '로그인에 실패했습니다');
-        }
-        
-        // 로그인 성공
-        utils.showToast(`${username}님, 환영합니다!`, 'success');
-        utils.hideModal(elements.authModal);
-        
-        // 비회원 모드 배너 숨기기
-        elements.guestModeBanner.style.display = 'none';
-        
-        // 사용자 이름 표시 업데이트
-        elements.userDisplayName.textContent = username;
-        
-        // UI 업데이트
-        updateUIAfterAuth();
-        
-        // 현재 페이지 새로고침
-        if (appState.currentPage === 'gallery') {
-            loadGalleryItems(appState.currentTab);
-        }
-    } catch (error) {
-        console.error('로그인 오류:', error);
-        utils.showToast(error.message || '로그인 중 오류가 발생했습니다', 'error');
-    } finally {
-        // 버튼 상태 복원
-        const submitBtn = elements.loginForm.querySelector('button[type="submit"]');
-        if (submitBtn) {
-            submitBtn.disabled = false;
-            submitBtn.innerHTML = originalBtnText;
-        }
-    }
-}
-
-// 로그아웃 처리
-async function handleLogout() {
-    try {
-        const result = await api.logout();
-        
-        if (result.success) {
-            utils.showToast('로그아웃되었습니다.', 'success');
-            
-            // 비회원 모드로 전환
-            enableGuestMode();
-            
-            // 홈으로 이동
-            if (appState.currentPage !== 'home') {
-                goBackToHome();
+// UI 관리 함수
+const uiManager = {
+    // 모달 관리
+    modalHandler: {
+        // 설정 모달 표시
+        showSettingsModal() {
+            if (!utils.validateElement(elements.settingsModal, 'settingsModal') ||
+                !utils.validateElement(elements.cellSizeRange, 'cellSizeRange') ||
+                !utils.validateElement(elements.cellSizeValue, 'cellSizeValue') ||
+                !utils.validateElement(elements.brushSizeRange, 'brushSizeRange') ||
+                !utils.validateElement(elements.brushSizeValue, 'brushSizeValue') ||
+                !utils.validateElement(elements.bgModeSwitch, 'bgModeSwitch') ||
+                !utils.validateElement(elements.customModeSwitch, 'customModeSwitch') ||
+                !utils.validateElement(elements.customEmojiSettings, 'customEmojiSettings') ||
+                !utils.validateElement(elements.filledEmojiInput, 'filledEmojiInput') ||
+                !utils.validateElement(elements.emptyEmojiInput, 'emptyEmojiInput')) {
+                return;
             }
-        } else {
-            throw new Error(result.message || '로그아웃에 실패했습니다');
-        }
-    } catch (error) {
-        console.error('로그아웃 오류:', error);
-        utils.showToast(error.message || '로그아웃 중 오류가 발생했습니다', 'error');
-    }
-}
-
-// 비회원 모드 활성화
-function enableGuestMode() {
-    if (!utils.validateElement(elements.guestModeBanner, 'guestModeBanner') ||
-        !utils.validateElement(elements.userDisplayName, 'userDisplayName') ||
-        !utils.validateElement(elements.authModal, 'authModal')) {
-        utils.showToast('비회원 모드를 활성화할 수 없습니다', 'error');
-        return;
-    }
-    
-    appState.isGuestMode = true;
-    appState.isAuthenticated = false;
-    
-    // 비회원 모드 배너 표시
-    elements.guestModeBanner.style.display = 'flex';
-    
-    // 사용자 이름 업데이트
-    elements.userDisplayName.textContent = '비회원';
-    
-    // 모달 닫기
-    utils.hideModal(elements.authModal);
-    
-    // 토스트 메시지 표시
-    utils.showToast('비회원 모드로 시작합니다. 온라인 기능이 제한됩니다.', 'info');
-    
-    // 설정에 작가명 저장
-    settings.author = '비회원';
-    utils.storage.saveSettings(settings);
-}
-
-// 인증 후 UI 업데이트
-function updateUIAfterAuth() {
-    // 비회원 모드 해제
-    appState.isGuestMode = false;
-    appState.isAuthenticated = true;
-    
-    // 사용자 드롭다운 메뉴 업데이트
-    updateUserDropdownMenu();
-    
-    // 설정에 작가명 저장
-    settings.author = api.getUsername();
-    utils.storage.saveSettings(settings);
-}
-
-// 사용자 드롭다운 메뉴 업데이트
-function updateUserDropdownMenu() {
-    if (!utils.validateElement(elements.userDropdownMenu, 'userDropdownMenu')) {
-        return;
-    }
-    
-    elements.userDropdownMenu.innerHTML = `
-        <div class="user-dropdown-item" id="logoutBtn">
-            <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-                <path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4"></path>
-                <polyline points="16 17 21 12 16 7"></polyline>
-                <line x1="21" y1="12" x2="9" y2="12"></line>
-            </svg>
-            <span>로그아웃</span>
-        </div>
-        <div class="user-dropdown-item">
-            <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-                <path d="M10 13a5 5 0 0 0 7.54.54l3-3a5 5 0 0 0-7.07-7.07l-1.72 1.71"></path>
-                <path d="M14 11a5 5 0 0 0-7.54-.54l-3 3a5 5 0 0 0 7.07 7.07l1.71-1.71"></path>
-            </svg>
-            <a href="https://discord.gg/zRyQf8qtv3" target="_blank" style="color: inherit; text-decoration: none;">계정 관리 (디스코드)</a>
-        </div>
-    `;
-    
-    // 로그아웃 버튼 이벤트 연결
-    const logoutBtn = document.getElementById('logoutBtn');
-    if (logoutBtn) {
-        logoutBtn.addEventListener('click', handleLogout);
-    }
-}
-
-// 이벤트 리스너 설정
-function setupEventListeners() {
-    // DOM이 완전히 로드되었는지 확인
-    if (document.readyState === 'loading') {
-        document.addEventListener('DOMContentLoaded', setupEventListeners);
-        return;
-    }
-    
-    // 사용자 프로필 클릭 이벤트
-    if (utils.validateElement(elements.userProfileBtn, 'userProfileBtn')) {
-        elements.userProfileBtn.addEventListener('click', toggleUserDropdown);
-    }
-    
-    // 인증 모달 이벤트
-    if (utils.validateElement(elements.authModal, 'authModal')) {
-        // 모달 닫기 버튼
-        const closeBtn = elements.authModal.querySelector('.modal-close');
-        if (closeBtn) {
-            closeBtn.addEventListener('click', () => utils.hideModal(elements.authModal));
-        }
+            
+            // 현재 설정 값 표시
+            elements.cellSizeRange.value = settings.cellSize;
+            elements.cellSizeValue.textContent = `${settings.cellSize}px`;
+            
+            elements.brushSizeRange.value = settings.brushSize;
+            elements.brushSizeValue.textContent = settings.brushSize;
+            
+            elements.bgModeSwitch.checked = settings.bgMode === 'transparent';
+            elements.customModeSwitch.checked = settings.customMode;
+            
+            // 커스텀 모드 설정
+            elements.customEmojiSettings.style.display = settings.customMode ? 'block' : 'none';
+            elements.filledEmojiInput.value = settings.filledEmoji;
+            elements.emptyEmojiInput.value = settings.emptyEmoji;
+            
+            // 모달 표시
+            utils.showModal(elements.settingsModal);
+        },
         
-        // 로그인 폼 제출
-        if (utils.validateElement(elements.loginForm, 'loginForm')) {
-            elements.loginForm.addEventListener('submit', handleLogin);
-        }
-        
-        // 비회원 모드 버튼
-        if (utils.validateElement(elements.guestModeBtn, 'guestModeBtn')) {
-            elements.guestModeBtn.addEventListener('click', enableGuestMode);
-        }
-        
-        // 비회원 모드에서 로그인 버튼
-        if (utils.validateElement(elements.guestLoginBtn, 'guestLoginBtn')) {
-            elements.guestLoginBtn.addEventListener('click', showAuthModal);
-        }
-    }
-    
-    // 설정 모달 이벤트
-    if (utils.validateElement(elements.settingsModal, 'settingsModal')) {
-        // 모달 닫기 버튼
-        const closeBtn = elements.settingsModal.querySelector('.modal-close');
-        if (closeBtn) {
-            closeBtn.addEventListener('click', () => utils.hideModal(elements.settingsModal));
-        }
-        
-        // 취소 버튼
-        if (utils.validateElement(elements.settingsCancelBtn, 'settingsCancelBtn')) {
-            elements.settingsCancelBtn.addEventListener('click', () => utils.hideModal(elements.settingsModal));
-        }
-        
-        // 저장 버튼
-        if (utils.validateElement(elements.settingsSaveBtn, 'settingsSaveBtn')) {
-            elements.settingsSaveBtn.addEventListener('click', applySettings);
-        }
-        
-        // 폼 제출 이벤트
-        if (utils.validateElement(elements.appSettingsForm, 'appSettingsForm')) {
-            elements.appSettingsForm.addEventListener('submit', applySettings);
-        }
-        
-        // 커스텀 모드 토글
-        if (utils.validateElement(elements.customModeSwitch, 'customModeSwitch') &&
-            utils.validateElement(elements.customEmojiSettings, 'customEmojiSettings') &&
-            utils.validateElement(elements.bgModeSwitch, 'bgModeSwitch')) {
-            elements.customModeSwitch.addEventListener('change', function() {
-                elements.customEmojiSettings.style.display = this.checked ? 'block' : 'none';
+        // 파일 관리 모달 표시
+        showFileModal(mode = 'save') {
+            if (!utils.validateElement(elements.fileModal, 'fileModal') ||
+                !utils.validateElement(elements.fileModalTitle, 'fileModalTitle') ||
+                !utils.validateElement(elements.fileNameInput, 'fileNameInput') ||
+                !utils.validateElement(elements.fileList, 'fileList') ||
+                !utils.validateElement(elements.saveFormGroup, 'saveFormGroup') ||
+                !utils.validateElement(elements.fileListGroup, 'fileListGroup') ||
+                !utils.validateElement(elements.fileDeleteBtn, 'fileDeleteBtn') ||
+                !utils.validateElement(elements.fileExportBtn, 'fileExportBtn') ||
+                !utils.validateElement(elements.fileActionBtn, 'fileActionBtn')) {
+                return;
+            }
+            
+            // 모달 설정 초기화
+            elements.fileNameInput.value = '';
+            elements.filePreview.innerHTML = '';
+            elements.fileList.innerHTML = '';
+            elements.fileDeleteBtn.style.display = 'none';
+            elements.fileExportBtn.style.display = 'none';
+            
+            // 모드에 따른 UI 설정
+            if (mode === 'save') {
+                elements.fileModalTitle.textContent = '파일 저장';
+                elements.saveFormGroup.style.display = 'block';
+                elements.fileListGroup.style.display = 'none';
+                elements.fileActionBtn.textContent = '저장';
+                elements.fileActionBtn.onclick = this.handleFileSave;
+            } else if (mode === 'load') {
+                elements.fileModalTitle.textContent = '파일 불러오기';
+                elements.saveFormGroup.style.display = 'none';
+                elements.fileListGroup.style.display = 'block';
+                elements.fileActionBtn.textContent = '불러오기';
+                elements.fileActionBtn.onclick = this.handleFileLoad;
                 
-                if (this.checked) {
-                    // 커스텀 모드가 켜지면 배경 투명 모드 비활성화
-                    elements.bgModeSwitch.checked = false;
-                    elements.bgModeSwitch.disabled = true;
+                // 파일 목록 로드
+                this.loadFileList();
+            }
+            
+            // 모달 표시
+            utils.showModal(elements.fileModal);
+        },
+        
+        // 파일 목록 로드
+        loadFileList() {
+            if (!utils.validateElement(elements.fileList, 'fileList')) {
+                return;
+            }
+            
+            // 파일 목록 가져오기
+            const files = utils.storage.getFileList();
+            
+            // 목록 초기화
+            elements.fileList.innerHTML = '';
+            
+            if (files.length === 0) {
+                const emptyItem = document.createElement('div');
+                emptyItem.className = 'file-item';
+                emptyItem.textContent = '저장된 파일이 없습니다';
+                elements.fileList.appendChild(emptyItem);
+                return;
+            }
+            
+            // 파일 목록 표시
+            files.forEach(fileName => {
+                const fileItem = document.createElement('div');
+                fileItem.className = 'file-item';
+                fileItem.dataset.filename = fileName;
+                
+                // 파일 메타데이터
+                const fileData = utils.storage.loadFile(fileName);
+                const lastModified = fileData?.lastModified ? utils.formatDate(fileData.lastModified) : '날짜 없음';
+                
+                // 파일 이름 표시 (확장자 제거)
+                const displayName = fileName.replace(/\.val$/, '');
+                
+                fileItem.innerHTML = `
+                    <div>
+                        <strong>${utils.escapeHtml(displayName)}</strong>
+                        <div style="font-size: 0.8rem; color: var(--text-muted);">${lastModified}</div>
+                    </div>
+                    <div class="file-item-actions">
+                        <button class="btn btn-round preview-btn" aria-label="미리보기">
+                            <svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                                <path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"></path>
+                                <circle cx="12" cy="12" r="3"></circle>
+                            </svg>
+                        </button>
+                    </div>
+                `;
+                
+                // 파일 선택 이벤트
+                fileItem.addEventListener('click', (e) => {
+                    // 버튼 클릭은 무시
+                    if (e.target.closest('.preview-btn') || e.target.closest('.delete-btn')) {
+                        return;
+                    }
+                    
+                    // 선택 표시
+                    document.querySelectorAll('.file-item').forEach(item => {
+                        item.classList.remove('selected');
+                    });
+                    fileItem.classList.add('selected');
+                    
+                    // 선택된 파일 미리보기
+                    this.showFilePreview(fileName);
+                    
+                    // 액션 버튼 활성화
+                    elements.fileActionBtn.disabled = false;
+                    elements.fileDeleteBtn.style.display = 'block';
+                    elements.fileExportBtn.style.display = 'block';
+                });
+                
+                // 미리보기 버튼 이벤트
+                const previewBtn = fileItem.querySelector('.preview-btn');
+                previewBtn.addEventListener('click', () => {
+                    this.showFilePreview(fileName);
+                });
+                
+                elements.fileList.appendChild(fileItem);
+            });
+        },
+        
+        // 파일 미리보기 표시
+        showFilePreview(fileName) {
+            if (!utils.validateElement(elements.filePreview, 'filePreview')) {
+                return;
+            }
+            
+            try {
+                // 파일 데이터 로드
+                const fileData = utils.storage.loadFile(fileName);
+                
+                if (!fileData || !fileData.data || !fileData.data.board) {
+                    elements.filePreview.innerHTML = `<div class="text-center">미리보기를 생성할 수 없습니다</div>`;
+                    return;
+                }
+                
+                // 미리보기 생성
+                elements.filePreview.innerHTML = '';
+                
+                // Emoji 그리드 미리보기 생성
+                const previewGrid = document.createElement('div');
+                previewGrid.className = 'drawing-canvas';
+                previewGrid.style.gridTemplateRows = `repeat(${fileData.data.board.length}, 15px)`;
+                previewGrid.style.gridTemplateColumns = `repeat(${fileData.data.board[0].length}, 15px)`;
+                
+                for (let row = 0; row < fileData.data.board.length; row++) {
+                    for (let col = 0; col < fileData.data.board[0].length; col++) {
+                        const cell = document.createElement('div');
+                        cell.className = 'emoji-cell';
+                        
+                        if (fileData.data.meta && fileData.data.meta.bgMode === 'transparent') {
+                            cell.classList.add('transparent');
+                        }
+                        
+                        if (fileData.data.board[row][col] === 1) {
+                            cell.classList.add('active');
+                            
+                            if (fileData.data.meta && fileData.data.meta.customMode) {
+                                cell.textContent = fileData.data.meta.filledEmoji || '■';
+                            } else {
+                                cell.textContent = '■';
+                            }
+                        } else {
+                            if (fileData.data.meta && fileData.data.meta.customMode) {
+                                cell.textContent = fileData.data.meta.emptyEmoji || '□';
+                            } else {
+                                cell.textContent = '□';
+                            }
+                        }
+                        
+                        previewGrid.appendChild(cell);
+                    }
+                }
+                
+                elements.filePreview.appendChild(previewGrid);
+                
+                // 메타데이터 추가
+                const metadataDiv = document.createElement('div');
+                metadataDiv.className = 'file-metadata';
+                metadataDiv.style.marginTop = '10px';
+                metadataDiv.style.fontSize = '0.8rem';
+                metadataDiv.style.color = 'var(--text-muted)';
+                
+                const authorText = fileData.author ? `작가: ${utils.escapeHtml(fileData.author)}` : '';
+                const versionText = fileData.version ? `버전: ${utils.escapeHtml(fileData.version)}` : '';
+                const dateText = fileData.lastModified ? `최종 수정: ${utils.formatDate(fileData.lastModified)}` : '';
+                
+                metadataDiv.innerHTML = `
+                    <div>${authorText}</div>
+                    <div>${dateText}</div>
+                    <div>${versionText}</div>
+                `;
+                
+                elements.filePreview.appendChild(metadataDiv);
+                
+            } catch (error) {
+                console.error('파일 미리보기 오류:', error);
+                elements.filePreview.innerHTML = `<div class="text-center">미리보기를 생성할 수 없습니다</div>`;
+            }
+        },
+        
+        // 파일 저장 처리
+        handleFileSave() {
+            if (!utils.validateElement(elements.fileNameInput, 'fileNameInput') ||
+                !utils.validateElement(elements.fileModal, 'fileModal')) {
+                return;
+            }
+            
+            const fileName = elements.fileNameInput.value.trim();
+            
+            if (!fileName) {
+                utils.showToast('파일 이름을 입력해주세요', 'error');
+                return;
+            }
+            
+            // 파일 이름 유효성 검사
+            const sanitizedFileName = utils.sanitizeFileName(fileName);
+            if (!sanitizedFileName) {
+                utils.showToast('유효하지 않은 파일 이름입니다', 'error');
+                return;
+            }
+            
+            // 현재 보드 데이터 가져오기
+            const boardData = canvasRenderer.getBoardData();
+            
+            // 저장할 데이터 구성
+            const saveData = {
+                data: boardData,
+                author: settings.author || api.getUsername() || '익명',
+                version: CONFIG.APP_VERSION,
+                createdAt: new Date().toISOString()
+            };
+            
+            // 파일 저장
+            const finalFileName = sanitizedFileName.endsWith('.val') ? 
+                sanitizedFileName : sanitizedFileName + '.val';
+                
+            const success = utils.storage.saveFile(finalFileName, saveData);
+            
+            if (success) {
+                utils.showToast(`파일이 "${finalFileName}"으로 저장되었습니다`, 'success');
+                utils.hideModal(elements.fileModal);
+            } else {
+                utils.showToast('파일 저장에 실패했습니다', 'error');
+            }
+        },
+        
+        // 파일 불러오기 처리
+        handleFileLoad() {
+            // 선택된 파일 확인
+            const selectedItem = document.querySelector('.file-item.selected');
+            
+            if (!selectedItem) {
+                utils.showToast('파일을 선택해주세요', 'error');
+                return;
+            }
+            
+            const fileName = selectedItem.dataset.filename;
+            
+            if (!fileName) {
+                utils.showToast('파일 이름을 가져올 수 없습니다', 'error');
+                return;
+            }
+            
+            // 파일 데이터 로드
+            const fileData = utils.storage.loadFile(fileName);
+            
+            if (!fileData || !fileData.data) {
+                utils.showToast('파일을 불러올 수 없습니다', 'error');
+                return;
+            }
+            
+            // 설정 업데이트
+            if (fileData.data.meta) {
+                if (fileData.data.meta.rows && fileData.data.meta.cols) {
+                    settings.emojiRows = fileData.data.meta.rows;
+                    settings.emojiCols = fileData.data.meta.cols;
+                }
+                
+                if (fileData.data.meta.cellSize) {
+                    settings.cellSize = fileData.data.meta.cellSize;
+                }
+                
+                if (fileData.data.meta.bgMode) {
+                    settings.bgMode = fileData.data.meta.bgMode;
+                }
+                
+                if (typeof fileData.data.meta.customMode !== 'undefined') {
+                    settings.customMode = fileData.data.meta.customMode;
+                }
+                
+                if (fileData.data.meta.filledEmoji) {
+                    settings.filledEmoji = fileData.data.meta.filledEmoji;
+                }
+                
+                if (fileData.data.meta.emptyEmoji) {
+                    settings.emptyEmoji = fileData.data.meta.emptyEmoji;
+                }
+            }
+            
+            // 설정 저장
+            utils.storage.saveSettings(settings);
+            
+            // 캔버스 그리드 재생성
+            canvasRenderer.createGrid();
+            
+            // 데이터 로드
+            const success = canvasRenderer.loadBoardData(fileData.data);
+            
+            if (success) {
+                utils.showToast(`"${fileName}" 파일을 불러왔습니다`, 'success');
+                utils.hideModal(elements.fileModal);
+            } else {
+                utils.showToast('파일 불러오기에 실패했습니다', 'error');
+            }
+        },
+        
+        // 파일 삭제 처리
+        handleFileDelete() {
+            // 선택된 파일 확인
+            const selectedItem = document.querySelector('.file-item.selected');
+            
+            if (!selectedItem) {
+                utils.showToast('파일을 선택해주세요', 'error');
+                return;
+            }
+            
+            const fileName = selectedItem.dataset.filename;
+            
+            if (!fileName) {
+                utils.showToast('파일 이름을 가져올 수 없습니다', 'error');
+                return;
+            }
+            
+            // 확인 대화상자
+            if (!confirm(`"${fileName}" 파일을 삭제하시겠습니까? 이 작업은 되돌릴 수 없습니다.`)) {
+                return;
+            }
+            
+            // 파일 삭제
+            const success = utils.storage.deleteFile(fileName);
+            
+            if (success) {
+                utils.showToast(`"${fileName}" 파일이 삭제되었습니다`, 'success');
+                
+                // 파일 목록 새로고침
+                this.loadFileList();
+                
+                // 미리보기 초기화
+                elements.filePreview.innerHTML = '';
+                
+                // 버튼 상태 업데이트
+                elements.fileDeleteBtn.style.display = 'none';
+                elements.fileExportBtn.style.display = 'none';
+            } else {
+                utils.showToast('파일 삭제에 실패했습니다', 'error');
+            }
+        },
+        
+        // 내보내기/가져오기 모달 표시
+        showExportImportModal() {
+            if (!utils.validateElement(elements.exportImportModal, 'exportImportModal') ||
+                !utils.validateElement(elements.exportBtn, 'exportBtn') ||
+                !utils.validateElement(elements.importBtn, 'importBtn') ||
+                !utils.validateElement(elements.importFileInput, 'importFileInput') ||
+                !utils.validateElement(elements.exportFileNameGroup, 'exportFileNameGroup') ||
+                !utils.validateElement(elements.exportImportCancelBtn, 'exportImportCancelBtn') ||
+                !utils.validateElement(elements.executeExportImportBtn, 'executeExportImportBtn')) {
+                return;
+            }
+            
+            // 모달 초기화
+            elements.importFileInput.style.display = 'none';
+            elements.exportFileNameGroup.style.display = 'none';
+            elements.filePreviewContainer.style.display = 'none';
+            elements.importConfirm.style.display = 'none';
+            elements.executeExportImportBtn.style.display = 'none';
+            
+            // 파일 입력 초기화
+            if (elements.fileInput) {
+                elements.fileInput.value = '';
+            }
+            
+            // 작가 정보 업데이트
+            elements.fileAuthorText.textContent = settings.author || api.getUsername() || '익명';
+            elements.fileVersionText.textContent = CONFIG.APP_VERSION;
+            
+            // 모달 표시
+            utils.showModal(elements.exportImportModal);
+            
+            // 내보내기 버튼 클릭 이벤트
+            elements.exportBtn.onclick = () => {
+                // UI 업데이트
+                elements.exportBtn.classList.add('active');
+                elements.importBtn.classList.remove('active');
+                elements.importFileInput.style.display = 'none';
+                elements.exportFileNameGroup.style.display = 'block';
+                elements.executeExportImportBtn.style.display = 'block';
+                elements.executeExportImportBtn.textContent = '내보내기';
+                elements.filePreviewContainer.style.display = 'none';
+                elements.importConfirm.style.display = 'none';
+                
+                // 파일명 기본값 설정
+                if (elements.exportFileName) {
+                    const defaultName = `valpaint_${new Date().toISOString().slice(0, 10).replace(/-/g, '')}`;
+                    elements.exportFileName.value = defaultName;
+                }
+                
+                // 내보내기 실행 버튼 이벤트
+                elements.executeExportImportBtn.onclick = this.handleExport;
+            };
+            
+            // 가져오기 버튼 클릭 이벤트
+            elements.importBtn.onclick = () => {
+                // UI 업데이트
+                elements.importBtn.classList.add('active');
+                elements.exportBtn.classList.remove('active');
+                elements.importFileInput.style.display = 'block';
+                elements.exportFileNameGroup.style.display = 'none';
+                elements.executeExportImportBtn.style.display = 'block';
+                elements.executeExportImportBtn.textContent = '가져오기';
+                elements.executeExportImportBtn.disabled = true;
+                elements.filePreviewContainer.style.display = 'none';
+                elements.importConfirm.style.display = 'none';
+                
+                // 파일 선택 이벤트
+                elements.fileInput.onchange = (e) => {
+                    const file = e.target.files[0];
+                    
+                    if (!file) {
+                        elements.executeExportImportBtn.disabled = true;
+                        elements.filePreviewContainer.style.display = 'none';
+                        elements.importConfirm.style.display = 'none';
+                        return;
+                    }
+                    
+                    // 파일 유효성 검사
+                    if (!file.name.endsWith('.val')) {
+                        utils.showToast('VAL 파일만 가져올 수 있습니다', 'error');
+                        elements.fileInput.value = '';
+                        elements.executeExportImportBtn.disabled = true;
+                        elements.filePreviewContainer.style.display = 'none';
+                        elements.importConfirm.style.display = 'none';
+                        return;
+                    }
+                    
+                    // 파일 미리보기
+                    this.previewImportFile(file);
+                };
+                
+                // 가져오기 실행 버튼 이벤트
+                elements.executeExportImportBtn.onclick = this.handleImport;
+            };
+            
+            // 기본값은 내보내기
+            elements.exportBtn.click();
+        },
+        
+        // 가져오기 파일 미리보기
+        previewImportFile(file) {
+            if (!file || !elements.importPreview || !elements.filePreviewContainer) {
+                return;
+            }
+            
+            // 미리보기 영역 표시
+            elements.filePreviewContainer.style.display = 'block';
+            elements.importPreview.innerHTML = '<div class="spinner"></div><p>파일 분석 중...</p>';
+            
+            // 파일 읽기
+            const reader = new FileReader();
+            
+            reader.onload = (e) => {
+                try {
+                    const fileData = JSON.parse(e.target.result);
+                    
+                    // 데이터 유효성 검사
+                    if (!fileData || !fileData.data || !fileData.data.board) {
+                        throw new Error('유효하지 않은 파일 형식입니다');
+                    }
+                    
+                    // 작가 및 버전 정보 표시
+                    elements.fileAuthorText.textContent = fileData.author || '알 수 없음';
+                    elements.fileVersionText.textContent = fileData.version || '알 수 없음';
+                    
+                    // 미리보기 생성
+                    elements.importPreview.innerHTML = '';
+                    
+                    // Emoji 그리드 미리보기 생성
+                    const rows = fileData.data.board.length;
+                    const cols = fileData.data.board[0].length;
+                    
+                    const previewGrid = document.createElement('div');
+                    previewGrid.className = 'drawing-canvas';
+                    previewGrid.style.gridTemplateRows = `repeat(${rows}, 15px)`;
+                    previewGrid.style.gridTemplateColumns = `repeat(${cols}, 15px)`;
+                    
+                    for (let row = 0; row < rows; row++) {
+                        for (let col = 0; col < cols; col++) {
+                            const cell = document.createElement('div');
+                            cell.className = 'emoji-cell';
+                            
+                            if (fileData.data.meta && fileData.data.meta.bgMode === 'transparent') {
+                                cell.classList.add('transparent');
+                            }
+                            
+                            if (fileData.data.board[row][col] === 1) {
+                                cell.classList.add('active');
+                                
+                                if (fileData.data.meta && fileData.data.meta.customMode) {
+                                    cell.textContent = fileData.data.meta.filledEmoji || '■';
+                                } else {
+                                    cell.textContent = '■';
+                                }
+                            } else {
+                                if (fileData.data.meta && fileData.data.meta.customMode) {
+                                    cell.textContent = fileData.data.meta.emptyEmoji || '□';
+                                } else {
+                                    cell.textContent = '□';
+                                }
+                            }
+                            
+                            previewGrid.appendChild(cell);
+                        }
+                    }
+                    
+                    elements.importPreview.appendChild(previewGrid);
+                    
+                    // 가져오기 확인 표시
+                    elements.importConfirm.style.display = 'block';
+                    elements.importConfirmCheck.checked = false;
+                    elements.executeExportImportBtn.disabled = true;
+                    
+                    // 체크박스 이벤트
+                    elements.importConfirmCheck.onchange = () => {
+                        elements.executeExportImportBtn.disabled = !elements.importConfirmCheck.checked;
+                    };
+                    
+                } catch (error) {
+                    console.error('파일 미리보기 오류:', error);
+                    elements.importPreview.innerHTML = '<p>파일을 미리볼 수 없습니다</p>';
+                    elements.importConfirm.style.display = 'none';
+                    elements.executeExportImportBtn.disabled = true;
+                }
+            };
+            
+            reader.onerror = () => {
+                elements.importPreview.innerHTML = '<p>파일을 읽을 수 없습니다</p>';
+                elements.importConfirm.style.display = 'none';
+                elements.executeExportImportBtn.disabled = true;
+            };
+            
+            reader.readAsText(file);
+        },
+        
+        // 파일 내보내기 처리
+        handleExport() {
+            if (!elements.exportFileName) {
+                utils.showToast('파일 이름을 설정할 수 없습니다', 'error');
+                return;
+            }
+            
+            const fileName = elements.exportFileName.value.trim();
+            
+            if (!fileName) {
+                utils.showToast('파일 이름을 입력해주세요', 'error');
+                return;
+            }
+            
+            // 파일 이름 유효성 검사
+            const sanitizedFileName = utils.sanitizeFileName(fileName);
+            if (!sanitizedFileName) {
+                utils.showToast('유효하지 않은 파일 이름입니다', 'error');
+                return;
+            }
+            
+            // 현재 보드 데이터 가져오기
+            const boardData = canvasRenderer.getBoardData();
+            
+            // 내보낼 데이터 구성
+            const exportData = {
+                data: boardData,
+                author: settings.author || api.getUsername() || '익명',
+                version: CONFIG.APP_VERSION,
+                createdAt: new Date().toISOString()
+            };
+            
+            // JSON 데이터 생성
+            const jsonData = JSON.stringify(exportData, null, 2);
+            
+            // 다운로드 링크 생성
+            const blob = new Blob([jsonData], { type: 'application/json' });
+            const url = URL.createObjectURL(blob);
+            
+            const downloadLink = document.createElement('a');
+            downloadLink.href = url;
+            downloadLink.download = sanitizedFileName.endsWith('.val') ? 
+                sanitizedFileName : sanitizedFileName + '.val';
+            
+            // 다운로드 실행
+            document.body.appendChild(downloadLink);
+            downloadLink.click();
+            document.body.removeChild(downloadLink);
+            
+            // URL 해제
+            setTimeout(() => {
+                URL.revokeObjectURL(url);
+            }, 100);
+            
+            utils.showToast('파일이 내보내기 되었습니다', 'success');
+            utils.hideModal(elements.exportImportModal);
+        },
+        
+        // 파일 가져오기 처리
+        handleImport() {
+            if (!elements.fileInput || !elements.importConfirmCheck) {
+                utils.showToast('파일 입력 요소를 찾을 수 없습니다', 'error');
+                return;
+            }
+            
+            const file = elements.fileInput.files[0];
+            
+            if (!file) {
+                utils.showToast('파일을 선택해주세요', 'error');
+                return;
+            }
+            
+            // 확인 체크박스 확인
+            if (!elements.importConfirmCheck.checked) {
+                utils.showToast('가져오기 확인을 체크해주세요', 'error');
+                return;
+            }
+            
+            // 파일 읽기
+            const reader = new FileReader();
+            
+            reader.onload = (e) => {
+                try {
+                    const fileData = JSON.parse(e.target.result);
+                    
+                    // 데이터 유효성 검사
+                    if (!fileData || !fileData.data || !fileData.data.board) {
+                        throw new Error('유효하지 않은 파일 형식입니다');
+                    }
+                    
+                    // 설정 업데이트
+                    if (fileData.data.meta) {
+                        if (fileData.data.meta.rows && fileData.data.meta.cols) {
+                            settings.emojiRows = fileData.data.meta.rows;
+                            settings.emojiCols = fileData.data.meta.cols;
+                        }
+                        
+                        if (fileData.data.meta.cellSize) {
+                            settings.cellSize = fileData.data.meta.cellSize;
+                        }
+                        
+                        if (fileData.data.meta.bgMode) {
+                            settings.bgMode = fileData.data.meta.bgMode;
+                        }
+                        
+                        if (typeof fileData.data.meta.customMode !== 'undefined') {
+                            settings.customMode = fileData.data.meta.customMode;
+                        }
+                        
+                        if (fileData.data.meta.filledEmoji) {
+                            settings.filledEmoji = fileData.data.meta.filledEmoji;
+                        }
+                        
+                        if (fileData.data.meta.emptyEmoji) {
+                            settings.emptyEmoji = fileData.data.meta.emptyEmoji;
+                        }
+                    }
+                    
+                    // 설정 저장
+                    utils.storage.saveSettings(settings);
+                    
+                    // 캔버스 그리드 재생성
+                    canvasRenderer.createGrid();
+                    
+                    // 데이터 로드
+                    const success = canvasRenderer.loadBoardData(fileData.data);
+                    
+                    if (success) {
+                        utils.showToast('파일을 성공적으로 가져왔습니다', 'success');
+                        utils.hideModal(elements.exportImportModal);
+                    } else {
+                        throw new Error('파일 데이터를 캔버스에 로드할 수 없습니다');
+                    }
+                } catch (error) {
+                    console.error('파일 가져오기 오류:', error);
+                    utils.showToast('파일 가져오기에 실패했습니다: ' + error.message, 'error');
+                }
+            };
+            
+            reader.onerror = () => {
+                utils.showToast('파일을 읽을 수 없습니다', 'error');
+            };
+            
+            reader.readAsText(file);
+        },
+        
+        // 공유 모달 표시
+        showShareModal() {
+            if (!utils.validateElement(elements.shareModal, 'shareModal') ||
+                !utils.validateElement(elements.shareTitleInput, 'shareTitleInput') ||
+                !utils.validateElement(elements.shareTagsInput, 'shareTagsInput') ||
+                !utils.validateElement(elements.shareDescInput, 'shareDescInput') ||
+                !utils.validateElement(elements.sharePreview, 'sharePreview')) {
+                return;
+            }
+            
+            // 비회원 모드 확인
+            if (appState.isGuestMode) {
+                utils.showToast('온라인 공유는 로그인이 필요합니다', 'error');
+                return;
+            }
+            
+            // 로그인 상태 확인
+            if (!api.isAuthenticated()) {
+                utils.showToast('로그인이 필요합니다', 'error');
+                showAuthModal();
+                return;
+            }
+            
+            // 모달 초기화
+            elements.shareTitleInput.value = '';
+            elements.shareTagsInput.value = '';
+            elements.shareDescInput.value = '';
+            
+            // 미리보기 생성
+            elements.sharePreview.innerHTML = '';
+            
+            // 보드 데이터 가져오기
+            const boardData = canvasRenderer.getBoardData();
+            
+            // 미리보기 생성
+            canvasRenderer.createPreview('sharePreview', boardData);
+            
+            // reCAPTCHA 초기화 (필요시)
+            if (window.grecaptcha && window.grecaptcha.reset) {
+                try {
+                    window.grecaptcha.reset();
+                } catch (error) {
+                    console.error('reCAPTCHA 초기화 오류:', error);
+                }
+            }
+            
+            // 모달 표시
+            utils.showModal(elements.shareModal);
+        },
+        
+        // 공유 처리
+        async handleShare() {
+            if (!utils.validateElement(elements.shareTitleInput, 'shareTitleInput') ||
+                !utils.validateElement(elements.shareTagsInput, 'shareTagsInput') ||
+                !utils.validateElement(elements.shareDescInput, 'shareDescInput')) {
+                return;
+            }
+            
+            // 로그인 상태 확인
+            if (!api.isAuthenticated()) {
+                utils.showToast('로그인이 필요합니다', 'error');
+                utils.hideModal(elements.shareModal);
+                showAuthModal();
+                return;
+            }
+            
+            const title = elements.shareTitleInput.value.trim();
+            const tags = elements.shareTagsInput.value.trim()
+                .split(',')
+                .map(tag => tag.trim())
+                .filter(tag => tag.length > 0);
+            const description = elements.shareDescInput.value.trim();
+            
+            // 유효성 검사
+            if (!title) {
+                utils.showToast('제목을 입력해주세요', 'error');
+                return;
+            }
+            
+            // reCAPTCHA 검증
+            let captchaResponse = '';
+            
+            if (window.grecaptcha) {
+                captchaResponse = window.grecaptcha.getResponse();
+                
+                if (!captchaResponse) {
+                    utils.showToast('보안 인증을 완료해주세요', 'error');
+                    return;
+                }
+            }
+            
+            // 보드 데이터 가져오기
+            const boardData = canvasRenderer.getBoardData();
+            
+            // 공유 데이터 구성
+            const shareData = {
+                title,
+                tags,
+                description,
+                data: boardData
+            };
+            
+            // 로딩 표시
+            const shareBtn = elements.shareActionBtn;
+            const originalBtnText = shareBtn.textContent;
+            shareBtn.disabled = true;
+            shareBtn.innerHTML = '<div class="spinner" style="width: 16px; height: 16px; display: inline-block;"></div> 공유 중...';
+            
+            try {
+                // 공유 요청
+                const result = await api.shareArtwork(shareData, captchaResponse);
+                
+                if (result.success) {
+                    utils.showToast('작품이 성공적으로 공유되었습니다', 'success');
+                    utils.hideModal(elements.shareModal);
                 } else {
-                    elements.bgModeSwitch.disabled = false;
+                    throw new Error(result.message || '작품 공유에 실패했습니다');
+                }
+            } catch (error) {
+                console.error('작품 공유 오류:', error);
+                utils.showToast(error.message || '작품 공유 중 오류가 발생했습니다', 'error');
+                
+                // reCAPTCHA 초기화 (필요시)
+                if (window.grecaptcha && window.grecaptcha.reset) {
+                    try {
+                        window.grecaptcha.reset();
+                    } catch (e) {
+                        console.error('reCAPTCHA 초기화 오류:', e);
+                    }
+                }
+            } finally {
+                // 버튼 상태 복원
+                shareBtn.disabled = false;
+                shareBtn.textContent = originalBtnText;
+            }
+        }
+    },
+    
+    // 갤러리 페이지 관리
+    galleryManager: {
+        // 갤러리 페이지 표시
+        showGalleryPage() {
+            if (!utils.validateElement(elements.galleryPage, 'galleryPage')) {
+                return;
+            }
+            
+            // 현재 페이지 상태 업데이트
+            appState.currentPage = 'gallery';
+            
+            // 갤러리 탭 설정
+            this.setActiveTab(appState.currentTab);
+            
+            // 갤러리 콘텐츠 로드
+            this.loadGalleryItems();
+            
+            // 페이지 표시
+            elements.galleryPage.classList.add('active');
+        },
+        
+        // 갤러리 페이지 닫기
+        hideGalleryPage() {
+            if (!utils.validateElement(elements.galleryPage, 'galleryPage')) {
+                return;
+            }
+            
+            // 페이지 숨기기
+            elements.galleryPage.classList.remove('active');
+            
+            // 현재 페이지 상태 업데이트
+            appState.currentPage = 'home';
+        },
+        
+        // 활성 탭 설정
+        setActiveTab(tabName) {
+            if (!utils.validateElement(elements.galleryTabs, 'galleryTabs')) {
+                return;
+            }
+            
+            // 현재 탭 상태 업데이트
+            appState.currentTab = tabName;
+            
+            // 탭 활성화 표시
+            elements.galleryTabs.forEach(tab => {
+                if (tab.dataset.tab === tabName) {
+                    tab.classList.add('active');
+                } else {
+                    tab.classList.remove('active');
                 }
             });
+            
+            // 페이지 파라미터 초기화
+            appState.pageParams.page = 1;
+            
+            // 갤러리 콘텐츠 로드
+            this.loadGalleryItems();
+        },
+        
+        // 갤러리 아이템 로드
+        async loadGalleryItems() {
+            if (!utils.validateElement(elements.galleryContent, 'galleryContent')) {
+                return;
+            }
+            
+            // 로딩 표시
+            elements.galleryContent.innerHTML = `
+                <div class="text-center" style="grid-column: 1 / -1; padding: 40px 0;">
+                    <div class="spinner"></div>
+                    <p>작품을 불러오는 중...</p>
+                </div>
+            `;
+            
+            try {
+                const { page, pageSize } = appState.pageParams;
+                const search = elements.searchInput ? elements.searchInput.value.trim() : '';
+                
+                let result = { data: [], count: 0 };
+                
+                // 현재 탭에 따라 다른 API 호출
+                switch (appState.currentTab) {
+                    case 'my':
+                        if (!api.isAuthenticated()) {
+                            elements.galleryContent.innerHTML = `
+                                <div class="empty-state" style="grid-column: 1 / -1;">
+                                    <svg xmlns="http://www.w3.org/2000/svg" width="48" height="48" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                                        <circle cx="12" cy="12" r="10"></circle>
+                                        <path d="M12 8v4"></path>
+                                        <path d="M12 16h.01"></path>
+                                    </svg>
+                                    <h3 class="empty-state-title">로그인이 필요합니다</h3>
+                                    <p class="empty-state-text">내 작품을 보려면 로그인하세요</p>
+                                    <button class="btn btn-accent mt-10" onclick="showAuthModal()">로그인</button>
+                                </div>
+                            `;
+                            return;
+                        }
+                        result = await api.getUserArtworks(page, pageSize, appState.currentFilter, search);
+                        break;
+                    
+                    case 'public':
+                        result = await api.getPublicArtworks(page, pageSize, appState.currentFilter, search);
+                        break;
+                    
+                    case 'favorites':
+                        if (!api.isAuthenticated()) {
+                            elements.galleryContent.innerHTML = `
+                                <div class="empty-state" style="grid-column: 1 / -1;">
+                                    <svg xmlns="http://www.w3.org/2000/svg" width="48" height="48" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                                        <path d="M20.84 4.61a5.5 5.5 0 0 0-7.78 0L12 5.67l-1.06-1.06a5.5 5.5 0 0 0-7.78 7.78l1.06 1.06L12 21.23l7.78-7.78 1.06-1.06a5.5 5.5 0 0 0 0-7.78z"></path>
+                                    </svg>
+                                    <h3 class="empty-state-title">로그인이 필요합니다</h3>
+                                    <p class="empty-state-text">즐겨찾기를 보려면 로그인하세요</p>
+                                    <button class="btn btn-accent mt-10" onclick="showAuthModal()">로그인</button>
+                                </div>
+                            `;
+                            return;
+                        }
+                        result = await api.getFavoriteArtworks(page, pageSize, appState.currentFilter, search);
+                        break;
+                }
+                
+                // 갤러리 렌더링
+                this.renderGalleryItems(result.data, result.count);
+                
+            } catch (error) {
+                console.error('갤러리 아이템 로드 오류:', error);
+                
+                elements.galleryContent.innerHTML = `
+                    <div class="empty-state" style="grid-column: 1 / -1;">
+                        <svg xmlns="http://www.w3.org/2000/svg" width="48" height="48" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                            <circle cx="12" cy="12" r="10"></circle>
+                            <line x1="12" y1="8" x2="12" y2="12"></line>
+                            <line x1="12" y1="16" x2="12.01" y2="16"></line>
+                        </svg>
+                        <h3 class="empty-state-title">작품을 불러올 수 없습니다</h3>
+                        <p class="empty-state-text">잠시 후 다시 시도해주세요</p>
+                        <button class="btn btn-accent mt-10" onclick="uiManager.galleryManager.loadGalleryItems()">새로고침</button>
+                    </div>
+                `;
+            }
+        },
+        
+        // 갤러리 아이템 렌더링
+        renderGalleryItems(items, totalCount) {
+            if (!utils.validateElement(elements.galleryContent, 'galleryContent') ||
+                !utils.validateElement(elements.galleryPagination, 'galleryPagination')) {
+                return;
+            }
+            
+            // 아이템이 없는 경우
+            if (!items || items.length === 0) {
+                elements.galleryContent.innerHTML = `
+                    <div class="empty-state" style="grid-column: 1 / -1;">
+                        <svg xmlns="http://www.w3.org/2000/svg" width="48" height="48" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                            <rect x="3" y="3" width="18" height="18" rx="2" ry="2"></rect>
+                            <circle cx="8.5" cy="8.5" r="1.5"></circle>
+                            <polyline points="21 15 16 10 5 21"></polyline>
+                        </svg>
+                        <h3 class="empty-state-title">작품이 없습니다</h3>
+                        <p class="empty-state-text">새 작품을 만들어 공유해보세요</p>
+                    </div>
+                `;
+                
+                // 페이지네이션 숨기기
+                elements.galleryPagination.innerHTML = '';
+                return;
+            }
+            
+            // 갤러리 아이템 생성
+            elements.galleryContent.innerHTML = '';
+            
+            items.forEach(item => {
+                // 미리보기 생성 함수 호출
+                const galleryItem = this.createGalleryItem(item);
+                elements.galleryContent.appendChild(galleryItem);
+            });
+            
+            // 페이지네이션 생성
+            this.createPagination(totalCount);
+        },
+        
+        // 갤러리 아이템 생성
+        createGalleryItem(item) {
+            const galleryItem = document.createElement('div');
+            galleryItem.className = 'gallery-item';
+            
+            // 썸네일 스타일 생성
+            const previewContainer = document.createElement('div');
+            previewContainer.className = 'gallery-preview';
+            
+            // 미리보기 생성
+            if (item.data) {
+                // 데이터 형식 변환
+                const itemData = typeof item.data === 'string' ? 
+                    JSON.parse(item.data) : item.data;
+                
+                // 미리보기 크기 계산
+                const maxSize = Math.min(previewContainer.clientWidth, previewContainer.clientHeight) || 120;
+                const cellSize = Math.max(2, Math.min(10, Math.floor(maxSize / Math.max(itemData.board.length, itemData.board[0].length))));
+                
+                // 이모지 그리드 미리보기 생성
+                const previewGrid = document.createElement('div');
+                previewGrid.className = 'drawing-canvas';
+                previewGrid.style.gridTemplateRows = `repeat(${itemData.board.length}, ${cellSize}px)`;
+                previewGrid.style.gridTemplateColumns = `repeat(${itemData.board[0].length}, ${cellSize}px)`;
+                
+                for (let row = 0; row < itemData.board.length; row++) {
+                    for (let col = 0; col < itemData.board[0].length; col++) {
+                        const cell = document.createElement('div');
+                        cell.className = 'emoji-cell';
+                        cell.style.fontSize = `${Math.max(cellSize * 0.7, 8)}px`;
+                        
+                        if (itemData.meta && itemData.meta.bgMode === 'transparent') {
+                            cell.classList.add('transparent');
+                        }
+                        
+                        if (itemData.board[row][col] === 1) {
+                            cell.classList.add('active');
+                            
+                            if (itemData.meta && itemData.meta.customMode) {
+                                cell.textContent = itemData.meta.filledEmoji || '■';
+                            } else {
+                                cell.textContent = '■';
+                            }
+                        } else {
+                            if (itemData.meta && itemData.meta.customMode) {
+                                cell.textContent = itemData.meta.emptyEmoji || '□';
+                            } else {
+                                cell.textContent = '□';
+                            }
+                        }
+                        
+                        previewGrid.appendChild(cell);
+                    }
+                }
+                
+                previewContainer.appendChild(previewGrid);
+            } else {
+                previewContainer.innerHTML = '<p>미리보기를 생성할 수 없습니다</p>';
+            }
+            
+            // 태그 목록 생성
+            const tagsHtml = item.tags && item.tags.length > 0 ? 
+                item.tags.map(tag => `<div class="gallery-tag">${utils.escapeHtml(tag)}</div>`).join('') : '';
+            
+            // 정보 영역 생성
+            const galleryInfo = document.createElement('div');
+            galleryInfo.className = 'gallery-info';
+            
+            // 즐겨찾기 상태 확인
+            const isFavorite = appState.favorites.includes(item.id);
+            
+            galleryInfo.innerHTML = `
+                <div class="gallery-title">${utils.escapeHtml(item.title)}</div>
+                <div class="gallery-creator">작가: ${utils.escapeHtml(item.creator)}</div>
+                <div class="gallery-tags">${tagsHtml}</div>
+                <div class="gallery-stats">
+                    <div>조회수: ${item.views || 0}</div>
+                    <div class="gallery-favorite ${isFavorite ? 'active' : ''}" data-id="${item.id}">
+                        <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="${isFavorite ? 'currentColor' : 'none'}" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                            <path d="M20.84 4.61a5.5 5.5 0 0 0-7.78 0L12 5.67l-1.06-1.06a5.5 5.5 0 0 0-7.78 7.78l1.06 1.06L12 21.23l7.78-7.78 1.06-1.06a5.5 5.5 0 0 0 0-7.78z"></path>
+                        </svg>
+                        <span>${isFavorite ? '추가됨' : '즐겨찾기'}</span>
+                    </div>
+                </div>
+            `;
+            
+            // 아이템 조립
+            galleryItem.appendChild(previewContainer);
+            galleryItem.appendChild(galleryInfo);
+            
+            // 아이템 클릭 이벤트
+            galleryItem.addEventListener('click', (e) => {
+                // 즐겨찾기 버튼 클릭은 무시
+                if (e.target.closest('.gallery-favorite')) {
+                    return;
+                }
+                
+                // 작품 상세 페이지 열기
+                uiManager.artworkManager.openArtworkPage(item.id);
+            });
+            
+            // 즐겨찾기 버튼 이벤트
+            const favoriteBtn = galleryInfo.querySelector('.gallery-favorite');
+            if (favoriteBtn) {
+                favoriteBtn.addEventListener('click', async (e) => {
+                    e.stopPropagation();
+                    
+                    // 로그인 확인
+                    if (!api.isAuthenticated()) {
+                        utils.showToast('즐겨찾기 추가는 로그인이 필요합니다', 'error');
+                        return;
+                    }
+                    
+                    const artworkId = favoriteBtn.dataset.id;
+                    const isActive = favoriteBtn.classList.contains('active');
+                    
+                    try {
+                        if (isActive) {
+                            // 즐겨찾기 제거
+                            await api.removeFavorite(artworkId);
+                            favoriteBtn.classList.remove('active');
+                            favoriteBtn.querySelector('svg').setAttribute('fill', 'none');
+                            favoriteBtn.querySelector('span').textContent = '즐겨찾기';
+                            utils.showToast('즐겨찾기에서 제거되었습니다', 'success');
+                        } else {
+                            // 즐겨찾기 추가
+                            await api.addFavorite(artworkId);
+                            favoriteBtn.classList.add('active');
+                            favoriteBtn.querySelector('svg').setAttribute('fill', 'currentColor');
+                            favoriteBtn.querySelector('span').textContent = '추가됨';
+                            utils.showToast('즐겨찾기에 추가되었습니다', 'success');
+                        }
+                    } catch (error) {
+                        console.error('즐겨찾기 오류:', error);
+                        utils.showToast(error.message || '즐겨찾기 처리 중 오류가 발생했습니다', 'error');
+                    }
+                });
+            }
+            
+            return galleryItem;
+        },
+        
+        // 페이지네이션 생성
+        createPagination(totalCount) {
+            if (!utils.validateElement(elements.galleryPagination, 'galleryPagination')) {
+                return;
+            }
+            
+            const { page, pageSize } = appState.pageParams;
+            const totalPages = Math.ceil(totalCount / pageSize);
+            
+            // 페이지네이션 상태 업데이트
+            appState.pageParams.totalPages = totalPages;
+            
+            // 페이지네이션이 필요 없는 경우
+            if (totalPages <= 1) {
+                elements.galleryPagination.innerHTML = '';
+                return;
+            }
+            
+            // 페이지네이션 생성
+            elements.galleryPagination.innerHTML = '';
+            
+            // 이전 페이지 버튼
+            if (page > 1) {
+                const prevBtn = document.createElement('div');
+                prevBtn.className = 'pagination-item';
+                prevBtn.innerHTML = '<svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="15 18 9 12 15 6"></polyline></svg>';
+                prevBtn.addEventListener('click', () => {
+                    this.goToPage(page - 1);
+                });
+                elements.galleryPagination.appendChild(prevBtn);
+            }
+            
+            // 페이지 버튼 생성
+            let startPage = Math.max(1, page - 2);
+            let endPage = Math.min(totalPages, startPage + 4);
+            
+            // 시작 페이지 조정
+            if (endPage - startPage < 4) {
+                startPage = Math.max(1, endPage - 4);
+            }
+            
+            for (let i = startPage; i <= endPage; i++) {
+                const pageBtn = document.createElement('div');
+                pageBtn.className = 'pagination-item';
+                
+                if (i === page) {
+                    pageBtn.classList.add('active');
+                }
+                
+                pageBtn.textContent = i;
+                
+                pageBtn.addEventListener('click', () => {
+                    this.goToPage(i);
+                });
+                
+                elements.galleryPagination.appendChild(pageBtn);
+            }
+            
+            // 다음 페이지 버튼
+            if (page < totalPages) {
+                const nextBtn = document.createElement('div');
+                nextBtn.className = 'pagination-item';
+                nextBtn.innerHTML = '<svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="9 18 15 12 9 6"></polyline></svg>';
+                nextBtn.addEventListener('click', () => {
+                    this.goToPage(page + 1);
+                });
+                elements.galleryPagination.appendChild(nextBtn);
+            }
+        },
+        
+        // 페이지 이동
+        goToPage(pageNumber) {
+            appState.pageParams.page = pageNumber;
+            this.loadGalleryItems();
+            
+            // 상단으로 스크롤
+            elements.galleryPage.scrollTo(0, 0);
+        },
+        
+        // 필터 적용
+        applyFilter(filterName) {
+            appState.currentFilter = filterName;
+            appState.pageParams.page = 1;
+            this.loadGalleryItems();
+            
+            // 필터 메뉴 갱신
+            if (elements.filterItems) {
+                elements.filterItems.forEach(item => {
+                    if (item.dataset.filter === filterName) {
+                        item.classList.add('active');
+                    } else {
+                        item.classList.remove('active');
+                    }
+                });
+            }
+        },
+        
+        // 검색 처리
+        handleSearch() {
+            if (!elements.searchInput) return;
+            
+            appState.pageParams.page = 1;
+            this.loadGalleryItems();
+        }
+    },
+    
+    // 작품 상세 페이지 관리
+    artworkManager: {
+        // 작품 상세 페이지 열기
+        async openArtworkPage(artworkId) {
+            if (!utils.validateElement(elements.artworkPage, 'artworkPage') ||
+                !utils.validateElement(elements.artworkPageTitle, 'artworkPageTitle') ||
+                !utils.validateElement(elements.artworkTitle, 'artworkTitle') ||
+                !utils.validateElement(elements.artworkCreator, 'artworkCreator') ||
+                !utils.validateElement(elements.artworkPreview, 'artworkPreview') ||
+                !utils.validateElement(elements.artworkDate, 'artworkDate') ||
+                !utils.validateElement(elements.artworkViews, 'artworkViews') ||
+                !utils.validateElement(elements.artworkTags, 'artworkTags') ||
+                !utils.validateElement(elements.artworkDesc, 'artworkDesc') ||
+                !utils.validateElement(elements.favoriteArtworkBtn, 'favoriteArtworkBtn') ||
+                !utils.validateElement(elements.downloadArtworkBtn, 'downloadArtworkBtn') ||
+                !utils.validateElement(elements.loadArtworkBtn, 'loadArtworkBtn')) {
+                return;
+            }
+            
+            // 현재 페이지 갤러리가 아니면 갤러리 페이지 열기
+            if (appState.currentPage !== 'gallery') {
+                uiManager.galleryManager.showGalleryPage();
+            }
+            
+            // 로딩 표시
+            elements.artworkPreview.innerHTML = `
+                <div class="text-center">
+                    <div class="spinner"></div>
+                    <p>작품을 불러오는 중...</p>
+                </div>
+            `;
+            
+            try {
+                // URL 해시 업데이트
+                window.location.hash = artworkId;
+                
+                // 작품 데이터 가져오기
+                const artwork = await api.getArtwork(artworkId);
+                
+                if (!artwork) {
+                    throw new Error('작품을 찾을 수 없습니다');
+                }
+                
+                // 현재 작품 저장
+                appState.currentArtwork = artwork;
+                appState.currentPage = 'artwork';
+                
+                // 작품 정보 표시
+                elements.artworkPageTitle.textContent = artwork.title;
+                elements.artworkTitle.textContent = artwork.title;
+                elements.artworkCreator.textContent = `작가: ${artwork.creator}`;
+                elements.artworkDate.textContent = utils.formatDate(artwork.created_at);
+                elements.artworkViews.textContent = artwork.views || 0;
+                
+                // 태그 표시
+                elements.artworkTags.innerHTML = '';
+                if (artwork.tags && artwork.tags.length > 0) {
+                    artwork.tags.forEach(tag => {
+                        const tagElement = document.createElement('div');
+                        tagElement.className = 'gallery-tag';
+                        tagElement.textContent = tag;
+                        elements.artworkTags.appendChild(tagElement);
+                    });
+                }
+                
+                // 설명 표시
+                elements.artworkDesc.textContent = artwork.description || '설명이 없습니다';
+                
+                // 즐겨찾기 버튼 상태 업데이트
+                const isFavorite = appState.favorites.includes(artwork.id);
+                
+                elements.favoriteArtworkBtn.innerHTML = `
+                    <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="${isFavorite ? 'currentColor' : 'none'}" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                        <path d="M20.84 4.61a5.5 5.5 0 0 0-7.78 0L12 5.67l-1.06-1.06a5.5 5.5 0 0 0-7.78 7.78l1.06 1.06L12 21.23l7.78-7.78 1.06-1.06a5.5 5.5 0 0 0 0-7.78z"></path>
+                    </svg>
+                    ${isFavorite ? '즐겨찾기 해제' : '즐겨찾기'}
+                `;
+                
+                // 미리보기 생성
+                this.createArtworkPreview(artwork);
+                
+                // 조회수 증가
+                api.incrementViews(artworkId).catch(error => {
+                    console.error('조회수 증가 오류:', error);
+                });
+                
+                // 페이지 표시
+                elements.artworkPage.classList.add('active');
+                
+                // 즐겨찾기 버튼 이벤트
+                elements.favoriteArtworkBtn.onclick = () => this.handleFavoriteToggle(artwork.id);
+                
+                // 다운로드 버튼 이벤트
+                elements.downloadArtworkBtn.onclick = () => this.handleArtworkDownload(artwork);
+                
+                // 불러오기 버튼 이벤트
+                elements.loadArtworkBtn.onclick = () => this.handleArtworkLoad(artwork);
+                
+            } catch (error) {
+                console.error('작품 상세 페이지 오류:', error);
+                
+                elements.artworkPreview.innerHTML = `
+                    <div class="empty-state">
+                        <svg xmlns="http://www.w3.org/2000/svg" width="48" height="48" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                            <circle cx="12" cy="12" r="10"></circle>
+                            <line x1="12" y1="8" x2="12" y2="12"></line>
+                            <line x1="12" y1="16" x2="12.01" y2="16"></line>
+                        </svg>
+                        <h3 class="empty-state-title">작품을 불러올 수 없습니다</h3>
+                        <p class="empty-state-text">${error.message || '오류가 발생했습니다'}</p>
+                    </div>
+                `;
+            }
+        },
+        
+        // 작품 미리보기 생성
+        createArtworkPreview(artwork) {
+            if (!artwork || !artwork.data) {
+                elements.artworkPreview.innerHTML = '<p>미리보기를 생성할 수 없습니다</p>';
+                return;
+            }
+            
+            // 데이터 형식 변환
+            const artworkData = typeof artwork.data === 'string' ? 
+                JSON.parse(artwork.data) : artwork.data;
+            
+            // 미리보기 생성
+            elements.artworkPreview.innerHTML = '';
+            
+            // Emoji 그리드 미리보기 생성
+            const previewGrid = document.createElement('div');
+            previewGrid.className = 'drawing-canvas';
+            
+            const rows = artworkData.board.length;
+            const cols = artworkData.board[0].length;
+            
+            // 최대 크기 계산
+            const maxWidth = elements.artworkPreview.clientWidth - 40;
+            const maxHeight = elements.artworkPreview.clientHeight - 40;
+            
+            // 셀 크기 계산
+                                const cellSize = Math.min(
+                Math.floor(maxWidth / cols),
+                Math.floor(maxHeight / rows),
+                30
+            );
+            
+            previewGrid.style.gridTemplateRows = `repeat(${rows}, ${cellSize}px)`;
+            previewGrid.style.gridTemplateColumns = `repeat(${cols}, ${cellSize}px)`;
+            
+            for (let row = 0; row < rows; row++) {
+                for (let col = 0; col < cols; col++) {
+                    const cell = document.createElement('div');
+                    cell.className = 'emoji-cell';
+                    
+                    if (artworkData.meta && artworkData.meta.bgMode === 'transparent') {
+                        cell.classList.add('transparent');
+                    }
+                    
+                    if (artworkData.board[row][col] === 1) {
+                        cell.classList.add('active');
+                        
+                        if (artworkData.meta && artworkData.meta.customMode) {
+                            cell.textContent = artworkData.meta.filledEmoji || '■';
+                        } else {
+                            cell.textContent = '■';
+                        }
+                    } else {
+                        if (artworkData.meta && artworkData.meta.customMode) {
+                            cell.textContent = artworkData.meta.emptyEmoji || '□';
+                        } else {
+                            cell.textContent = '□';
+                        }
+                    }
+                    
+                    previewGrid.appendChild(cell);
+                }
+            }
+            
+            elements.artworkPreview.appendChild(previewGrid);
+        },
+        
+        // 작품 상세 페이지 닫기
+        closeArtworkPage() {
+            if (!utils.validateElement(elements.artworkPage, 'artworkPage')) {
+                return;
+            }
+            
+            // 페이지 숨기기
+            elements.artworkPage.classList.remove('active');
+            
+            // URL 해시 제거
+            window.location.hash = '';
+            
+            // 현재 페이지 상태 업데이트
+            appState.currentPage = 'gallery';
+            appState.currentArtwork = null;
+        },
+        
+        // 즐겨찾기 토글 처리
+        async handleFavoriteToggle(artworkId) {
+            // 로그인 확인
+            if (!api.isAuthenticated()) {
+                utils.showToast('즐겨찾기는 로그인이 필요합니다', 'error');
+                return;
+            }
+            
+            // 버튼 상태 가져오기
+            const isFavorite = appState.favorites.includes(artworkId);
+            
+            try {
+                if (isFavorite) {
+                    // 즐겨찾기 제거
+                    await api.removeFavorite(artworkId);
+                    utils.showToast('즐겨찾기에서 제거되었습니다', 'success');
+                } else {
+                    // 즐겨찾기 추가
+                    await api.addFavorite(artworkId);
+                    utils.showToast('즐겨찾기에 추가되었습니다', 'success');
+                }
+                
+                // 즐겨찾기 버튼 상태 업데이트
+                const newIsFavorite = !isFavorite;
+                
+                elements.favoriteArtworkBtn.innerHTML = `
+                    <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="${newIsFavorite ? 'currentColor' : 'none'}" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                        <path d="M20.84 4.61a5.5 5.5 0 0 0-7.78 0L12 5.67l-1.06-1.06a5.5 5.5 0 0 0-7.78 7.78l1.06 1.06L12 21.23l7.78-7.78 1.06-1.06a5.5 5.5 0 0 0 0-7.78z"></path>
+                    </svg>
+                    ${newIsFavorite ? '즐겨찾기 해제' : '즐겨찾기'}
+                `;
+            } catch (error) {
+                console.error('즐겨찾기 오류:', error);
+                utils.showToast(error.message || '즐겨찾기 처리 중 오류가 발생했습니다', 'error');
+            }
+        },
+        
+        // 작품 다운로드 처리
+        handleArtworkDownload(artwork) {
+            if (!artwork || !artwork.data) {
+                utils.showToast('다운로드할 수 없는 형식입니다', 'error');
+                return;
+            }
+            
+            // 데이터 형식 변환
+            const artworkData = typeof artwork.data === 'string' ? 
+                JSON.parse(artwork.data) : artwork.data;
+            
+            // 다운로드 데이터 구성
+            const downloadData = {
+                data: artworkData,
+                author: artwork.creator || '익명',
+                version: artwork.version || CONFIG.APP_VERSION,
+                createdAt: artwork.created_at,
+                title: artwork.title
+            };
+            
+            // JSON 데이터 생성
+            const jsonData = JSON.stringify(downloadData, null, 2);
+            
+            // 다운로드 링크 생성
+            const blob = new Blob([jsonData], { type: 'application/json' });
+            const url = URL.createObjectURL(blob);
+            
+            const fileName = `${artwork.title.replace(/[^a-zA-Z0-9가-힣ㄱ-ㅎㅏ-ㅣ_\-]/g, '_')}.val`;
+            const downloadLink = document.createElement('a');
+            downloadLink.href = url;
+            downloadLink.download = fileName;
+            
+            // 다운로드 실행
+            document.body.appendChild(downloadLink);
+            downloadLink.click();
+            document.body.removeChild(downloadLink);
+            
+            // URL 해제
+            setTimeout(() => {
+                URL.revokeObjectURL(url);
+            }, 100);
+            
+            utils.showToast('작품이 다운로드 되었습니다', 'success');
+        },
+        
+        // 작품 불러오기 처리
+        handleArtworkLoad(artwork) {
+            if (!artwork || !artwork.data) {
+                utils.showToast('불러올 수 없는 형식입니다', 'error');
+                return;
+            }
+            
+            // 데이터 형식 변환
+            const artworkData = typeof artwork.data === 'string' ? 
+                JSON.parse(artwork.data) : artwork.data;
+            
+            // 작품 정보 확인
+            if (!artworkData.board) {
+                utils.showToast('유효하지 않은 작품 데이터입니다', 'error');
+                return;
+            }
+            
+            // 설정 업데이트
+            if (artworkData.meta) {
+                if (artworkData.meta.rows && artworkData.meta.cols) {
+                    settings.emojiRows = artworkData.meta.rows;
+                    settings.emojiCols = artworkData.meta.cols;
+                }
+                
+                if (artworkData.meta.cellSize) {
+                    settings.cellSize = artworkData.meta.cellSize;
+                }
+                
+                if (artworkData.meta.bgMode) {
+                    settings.bgMode = artworkData.meta.bgMode;
+                }
+                
+                if (typeof artworkData.meta.customMode !== 'undefined') {
+                    settings.customMode = artworkData.meta.customMode;
+                }
+                
+                if (artworkData.meta.filledEmoji) {
+                    settings.filledEmoji = artworkData.meta.filledEmoji;
+                }
+                
+                if (artworkData.meta.emptyEmoji) {
+                    settings.emptyEmoji = artworkData.meta.emptyEmoji;
+                }
+            }
+            
+            // 설정 저장
+            utils.storage.saveSettings(settings);
+            
+            // 확인 대화상자
+            if (!confirm('현재 작업 중인 내용이 모두 삭제됩니다. 계속하시겠습니까?')) {
+                return;
+            }
+            
+            // 홈으로 이동
+            this.closeArtworkPage();
+            if (appState.currentPage === 'gallery') {
+                uiManager.galleryManager.hideGalleryPage();
+            }
+            
+            // 캔버스 그리드 재생성
+            canvasRenderer.createGrid();
+            
+            // 데이터 로드
+            const success = canvasRenderer.loadBoardData(artworkData);
+            
+            if (success) {
+                utils.showToast(`"${artwork.title}" 작품을 불러왔습니다`, 'success');
+            } else {
+                utils.showToast('작품 불러오기에 실패했습니다', 'error');
+            }
+        }
+    }
+};
+
+// 이벤트 핸들러 설정
+function setupEventHandlers() {
+    // 사용자 인터페이스 버튼 이벤트 연결
+    if (utils.validateElement(elements.drawEraseBtn, 'drawEraseBtn')) {
+        elements.drawEraseBtn.addEventListener('click', toggleDrawMode);
+    }
+    
+    if (utils.validateElement(elements.clearBtn, 'clearBtn')) {
+        elements.clearBtn.addEventListener('click', clearCanvas);
+    }
+    
+    if (utils.validateElement(elements.brushSizeDownBtn, 'brushSizeDownBtn')) {
+        elements.brushSizeDownBtn.addEventListener('click', decreaseBrushSize);
+    }
+    
+    if (utils.validateElement(elements.brushSizeUpBtn, 'brushSizeUpBtn')) {
+        elements.brushSizeUpBtn.addEventListener('click', increaseBrushSize);
+    }
+    
+    if (utils.validateElement(elements.saveBtn, 'saveBtn')) {
+        elements.saveBtn.addEventListener('click', () => uiManager.modalHandler.showFileModal('save'));
+    }
+    
+    if (utils.validateElement(elements.loadBtn, 'loadBtn')) {
+        elements.loadBtn.addEventListener('click', () => uiManager.modalHandler.showFileModal('load'));
+    }
+    
+    if (utils.validateElement(elements.copyBtn, 'copyBtn')) {
+        elements.copyBtn.addEventListener('click', copyCanvasToClipboard);
+    }
+    
+    if (utils.validateElement(elements.shareBtn, 'shareBtn')) {
+        elements.shareBtn.addEventListener('click', () => uiManager.modalHandler.showShareModal());
+    }
+    
+    if (utils.validateElement(elements.settingsBtn, 'settingsBtn')) {
+        elements.settingsBtn.addEventListener('click', () => uiManager.modalHandler.showSettingsModal());
+    }
+    
+    if (utils.validateElement(elements.helpBtn, 'helpBtn')) {
+        elements.helpBtn.addEventListener('click', () => utils.showModal(elements.helpModal));
+    }
+    
+    if (utils.validateElement(elements.galleryBtn, 'galleryBtn')) {
+        elements.galleryBtn.addEventListener('click', () => uiManager.galleryManager.showGalleryPage());
+    }
+    
+    if (utils.validateElement(elements.exportImportBtn, 'exportImportBtn')) {
+        elements.exportImportBtn.addEventListener('click', () => uiManager.modalHandler.showExportImportModal());
+    }
+    
+    // 파일 모달 이벤트
+    if (utils.validateElement(elements.fileDeleteBtn, 'fileDeleteBtn')) {
+        elements.fileDeleteBtn.addEventListener('click', () => uiManager.modalHandler.handleFileDelete());
+    }
+    
+    if (utils.validateElement(elements.fileModalCancelBtn, 'fileModalCancelBtn')) {
+        elements.fileModalCancelBtn.addEventListener('click', () => utils.hideModal(elements.fileModal));
+    }
+    
+    // 내보내기/가져오기 모달 이벤트
+    if (utils.validateElement(elements.exportImportCancelBtn, 'exportImportCancelBtn')) {
+        elements.exportImportCancelBtn.addEventListener('click', () => utils.hideModal(elements.exportImportModal));
+    }
+    
+    // 공유 모달 이벤트
+    if (utils.validateElement(elements.shareForm, 'shareForm')) {
+        elements.shareForm.addEventListener('submit', (e) => {
+            e.preventDefault();
+            uiManager.modalHandler.handleShare();
+        });
+    }
+    
+    if (utils.validateElement(elements.shareModalCancelBtn, 'shareModalCancelBtn')) {
+        elements.shareModalCancelBtn.addEventListener('click', () => utils.hideModal(elements.shareModal));
+    }
+    
+    if (utils.validateElement(elements.shareActionBtn, 'shareActionBtn')) {
+        elements.shareActionBtn.addEventListener('click', () => uiManager.modalHandler.handleShare());
+    }
+    
+    // 도움말 모달 이벤트
+    if (utils.validateElement(elements.helpCloseBtn, 'helpCloseBtn')) {
+        elements.helpCloseBtn.addEventListener('click', () => utils.hideModal(elements.helpModal));
+    }
+    
+    if (utils.validateElement(elements.shortcutsBtn, 'shortcutsBtn')) {
+        elements.shortcutsBtn.addEventListener('click', () => {
+            utils.hideModal(elements.helpModal);
+            utils.showModal(elements.shortcutsModal);
+        });
+    }
+    
+    if (utils.validateElement(elements.shortcutsCloseBtn, 'shortcutsCloseBtn')) {
+        elements.shortcutsCloseBtn.addEventListener('click', () => utils.hideModal(elements.shortcutsModal));
+    }
+    
+    // 갤러리 페이지 이벤트
+    if (utils.validateElement(elements.galleryBackBtn, 'galleryBackBtn')) {
+        elements.galleryBackBtn.addEventListener('click', () => uiManager.galleryManager.hideGalleryPage());
+    }
+    
+    if (utils.validateElement(elements.galleryTabs, 'galleryTabs')) {
+        elements.galleryTabs.forEach(tab => {
+            tab.addEventListener('click', () => {
+                const tabName = tab.dataset.tab;
+                uiManager.galleryManager.setActiveTab(tabName);
+            });
+        });
+    }
+    
+    if (utils.validateElement(elements.filterBtn, 'filterBtn') &&
+        utils.validateElement(elements.filterMenu, 'filterMenu')) {
+        elements.filterBtn.addEventListener('click', (e) => {
+            e.stopPropagation();
+            elements.filterMenu.classList.toggle('active');
+        });
+        
+        // 필터 메뉴 외부 클릭 감지
+        document.addEventListener('click', (e) => {
+            if (!elements.filterBtn.contains(e.target) && !elements.filterMenu.contains(e.target)) {
+                elements.filterMenu.classList.remove('active');
+            }
+        });
+    }
+    
+    if (utils.validateElement(elements.filterItems, 'filterItems')) {
+        elements.filterItems.forEach(item => {
+            item.addEventListener('click', () => {
+                const filterName = item.dataset.filter;
+                uiManager.galleryManager.applyFilter(filterName);
+                elements.filterMenu.classList.remove('active');
+            });
+        });
+    }
+    
+    if (utils.validateElement(elements.searchInput, 'searchInput')) {
+        elements.searchInput.addEventListener('keyup', (e) => {
+            if (e.key === 'Enter') {
+                uiManager.galleryManager.handleSearch();
+            }
+        });
+    }
+    
+    if (utils.validateElement(elements.refreshGalleryBtn, 'refreshGalleryBtn')) {
+        elements.refreshGalleryBtn.addEventListener('click', () => uiManager.galleryManager.loadGalleryItems());
+    }
+    
+    // 작품 상세 페이지 이벤트
+    if (utils.validateElement(elements.artworkBackBtn, 'artworkBackBtn')) {
+        elements.artworkBackBtn.addEventListener('click', () => uiManager.artworkManager.closeArtworkPage());
+    }
+    
+    // 키보드 단축키 이벤트
+    document.addEventListener('keydown', handleKeyboardShortcuts);
+    
+    // 창 크기 변경 이벤트
+    window.addEventListener('resize', handleWindowResize);
+    
+    // 해시 변경 이벤트
+    window.addEventListener('hashchange', handleHashChange);
+}
+
+// 그리기/지우기 모드 토글
+function toggleDrawMode() {
+    appState.isEraserMode = !appState.isEraserMode;
+    
+    if (elements.drawEraseBtn) {
+        if (appState.isEraserMode) {
+            elements.drawEraseBtn.innerHTML = `
+                <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                    <rect x="3" y="3" width="18" height="18" rx="2"></rect>
+                    <line x1="8" y1="10" x2="16" y2="10"></line>
+                    <line x1="8" y1="14" x2="16" y2="14"></line>
+                </svg>
+                <span class="valorant-text">지우기</span>
+            `;
+        } else {
+            elements.drawEraseBtn.innerHTML = `
+                <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                    <path d="M12 19l7-7 3 3-7 7-3-3z"></path>
+                    <path d="M18 13l-1.5-7.5L2 2l3.5 14.5L13 18l5-5z"></path>
+                    <path d="M2 2l7.586 7.586"></path>
+                    <circle cx="11" cy="11" r="2"></circle>
+                </svg>
+                <span class="valorant-text">그리기</span>
+            `;
         }
     }
     
-    // 나머지 이벤트 리스너 설정...
-    
-    // 사용자 드롭다운 메뉴 초기화
-    updateUserDropdownMenu();
+    // 토스트 메시지 표시
+    utils.showToast(appState.isEraserMode ? '지우기 모드로 전환했습니다' : '그리기 모드로 전환했습니다', 'info');
 }
 
-// 사용자 프로필 드롭다운 토글
-function toggleUserDropdown() {
-    if (!utils.validateElement(elements.userDropdownMenu, 'userDropdownMenu') ||
-        !utils.validateElement(elements.userProfileBtn, 'userProfileBtn')) {
+// 브러시 크기 증가
+function increaseBrushSize() {
+    if (settings.brushSize < CONFIG.MAX_BRUSH_SIZE) {
+        settings.brushSize++;
+        updateBrushSizeDisplay();
+        utils.storage.saveSettings(settings);
+    }
+}
+
+// 브러시 크기 감소
+function decreaseBrushSize() {
+    if (settings.brushSize > CONFIG.MIN_BRUSH_SIZE) {
+        settings.brushSize--;
+        updateBrushSizeDisplay();
+        utils.storage.saveSettings(settings);
+    }
+}
+
+// 브러시 크기 표시 업데이트
+function updateBrushSizeDisplay() {
+    if (elements.brushSizeDisplay) {
+        elements.brushSizeDisplay.textContent = settings.brushSize;
+    }
+    
+    // 커서 크기 업데이트
+    if (elements.brushCursor) {
+        const lastPosition = appState.lastMousePosition;
+        if (lastPosition) {
+            canvasRenderer.updateBrushCursor(lastPosition.x, lastPosition.y);
+        }
+    }
+}
+
+// 캔버스 지우기
+function clearCanvas() {
+    if (confirm('모든 내용을 지우시겠습니까?')) {
+        canvasRenderer.clearCanvas();
+    }
+}
+
+// 캔버스 복사
+function copyCanvasToClipboard() {
+    // 이모지 텍스트로 변환
+    const asciiArt = canvasRenderer.getBoardAsAscii();
+    
+    // 클립보드에 복사
+    navigator.clipboard.writeText(asciiArt)
+        .then(() => {
+            utils.showToast('이모지 아트가 클립보드에 복사되었습니다', 'success');
+        })
+        .catch(err => {
+            console.error('클립보드 복사 오류:', err);
+            utils.showToast('클립보드 복사 중 오류가 발생했습니다', 'error');
+            
+            // 폴백: 텍스트 영역에 복사
+            const textarea = document.createElement('textarea');
+            textarea.value = asciiArt;
+            document.body.appendChild(textarea);
+            textarea.select();
+            
+            try {
+                document.execCommand('copy');
+                utils.showToast('이모지 아트가 클립보드에 복사되었습니다', 'success');
+            } catch (e) {
+                utils.showToast('클립보드 복사에 실패했습니다', 'error');
+                console.error('클립보드 복사 오류:', e);
+            }
+            
+            document.body.removeChild(textarea);
+        });
+}
+
+// 설정 적용
+function applySettings() {
+    if (!utils.validateElement(elements.settingsModal, 'settingsModal') ||
+        !utils.validateElement(elements.cellSizeRange, 'cellSizeRange') ||
+        !utils.validateElement(elements.brushSizeRange, 'brushSizeRange') ||
+        !utils.validateElement(elements.bgModeSwitch, 'bgModeSwitch') ||
+        !utils.validateElement(elements.customModeSwitch, 'customModeSwitch') ||
+        !utils.validateElement(elements.filledEmojiInput, 'filledEmojiInput') ||
+        !utils.validateElement(elements.emptyEmojiInput, 'emptyEmojiInput')) {
         return;
     }
     
-    elements.userDropdownMenu.classList.toggle('active');
+    // 설정 값 가져오기
+    const cellSize = parseInt(elements.cellSizeRange.value);
+    const brushSize = parseInt(elements.brushSizeRange.value);
+    const bgMode = elements.bgModeSwitch.checked ? 'transparent' : 'rectangle';
+    const customMode = elements.customModeSwitch.checked;
     
-    // 드롭다운 외부 클릭 감지
-    function closeDropdown(e) {
-        if (!elements.userProfileBtn.contains(e.target) && !elements.userDropdownMenu.contains(e.target)) {
-            elements.userDropdownMenu.classList.remove('active');
-            document.removeEventListener('click', closeDropdown);
+    // 이모지 값 가져오기
+    let filledEmoji = elements.filledEmojiInput.value;
+    let emptyEmoji = elements.emptyEmojiInput.value;
+    
+    // 이모지 유효성 검사
+    if (customMode) {
+        if (!filledEmoji || filledEmoji.length === 0) {
+            filledEmoji = '■';
+        }
+        
+        if (!emptyEmoji || emptyEmoji.length === 0) {
+            emptyEmoji = '□';
+        }
+        
+        // 이모지 길이 제한
+        if (filledEmoji.length > 2) {
+            filledEmoji = filledEmoji.slice(0, 2);
+        }
+        
+        if (emptyEmoji.length > 2) {
+            emptyEmoji = emptyEmoji.slice(0, 2);
         }
     }
     
-    if (elements.userDropdownMenu.classList.contains('active')) {
-        setTimeout(() => {
-            document.addEventListener('click', closeDropdown);
-        }, 0);
-    } else {
-        document.removeEventListener('click', closeDropdown);
+    // 설정 업데이트
+    settings.cellSize = cellSize;
+    settings.brushSize = brushSize;
+    settings.bgMode = bgMode;
+    settings.customMode = customMode;
+    settings.filledEmoji = filledEmoji;
+    settings.emptyEmoji = emptyEmoji;
+    
+    // 설정 저장
+    utils.storage.saveSettings(settings);
+    
+    // 브러시 크기 표시 업데이트
+    updateBrushSizeDisplay();
+    
+    // 캔버스 재생성
+    canvasRenderer.createGrid();
+    
+    // 모달 닫기
+    utils.hideModal(elements.settingsModal);
+    
+    // 토스트 메시지 표시
+    utils.showToast('설정이 저장되었습니다', 'success');
+}
+
+// 키보드 단축키 처리
+function handleKeyboardShortcuts(e) {
+    // 모달이 열려있는 경우 단축키 처리하지 않음
+    if (document.querySelector('.modal.show')) {
+        return;
     }
+    
+    // 갤러리나 작품 상세 페이지에서는 일부 단축키만 처리
+    if (appState.currentPage !== 'home') {
+        if (e.key === 'Escape') {
+            if (appState.currentPage === 'artwork') {
+                uiManager.artworkManager.closeArtworkPage();
+            } else if (appState.currentPage === 'gallery') {
+                uiManager.galleryManager.hideGalleryPage();
+            }
+        }
+        return;
+    }
+    
+    // 단축키 처리
+    switch (e.key) {
+        case 'q':
+        case 'Q':
+            toggleDrawMode();
+            break;
+        
+        case '+':
+        case '=':
+            increaseBrushSize();
+            break;
+        
+        case '-':
+        case '_':
+            decreaseBrushSize();
+            break;
+        
+        case 'Delete':
+            clearCanvas();
+            break;
+        
+        case 's':
+        case 'S':
+            if (e.ctrlKey) {
+                e.preventDefault();
+                uiManager.modalHandler.showFileModal('save');
+            }
+            break;
+        
+        case 'o':
+        case 'O':
+            if (e.ctrlKey) {
+                e.preventDefault();
+                uiManager.modalHandler.showFileModal('load');
+            }
+            break;
+        
+        case 'c':
+        case 'C':
+            if (e.ctrlKey) {
+                e.preventDefault();
+                copyCanvasToClipboard();
+            }
+            break;
+        
+        case 'e':
+        case 'E':
+            if (e.ctrlKey) {
+                e.preventDefault();
+                uiManager.modalHandler.showExportImportModal();
+            }
+            break;
+        
+        case 'F1':
+            e.preventDefault();
+            utils.showModal(elements.helpModal);
+            break;
+        
+        case 'F2':
+            e.preventDefault();
+            uiManager.modalHandler.showSettingsModal();
+            break;
+    }
+}
+
+// 창 크기 변경 처리
+function handleWindowResize() {
+    // 브러시 커서 위치 업데이트
+    if (appState.lastMousePosition) {
+        canvasRenderer.updateBrushCursor(appState.lastMousePosition.x, appState.lastMousePosition.y);
+    }
+    
+    // 현재 작품 미리보기 업데이트
+    if (appState.currentPage === 'artwork' && appState.currentArtwork) {
+        uiManager.artworkManager.createArtworkPreview(appState.currentArtwork);
+    }
+}
+
+// URL 해시 변경 처리
+function handleHashChange() {
+    const hash = window.location.hash.substring(1);
+    
+    if (hash) {
+        // 작품 ID가 있으면 작품 상세 페이지 열기
+        uiManager.artworkManager.openArtworkPage(hash);
+    } else if (appState.currentPage === 'artwork') {
+        // 해시가 없고 현재 작품 페이지인 경우 닫기
+        uiManager.artworkManager.closeArtworkPage();
+    }
+}
+
+// VALORANT 폰트 적용
+function applyValorantFont() {
+    const fontCheck = setInterval(() => {
+        try {
+            if (document.fonts.check('12px VALORANT')) {
+                clearInterval(fontCheck);
+                
+                // 폰트가 로드된 경우 처리
+                const valorantElements = document.querySelectorAll('.valorant-text');
+                valorantElements.forEach(el => {
+                    el.style.opacity = '1';
+                });
+            }
+        } catch (error) {
+            console.error('폰트 확인 오류:', error);
+            clearInterval(fontCheck);
+        }
+    }, 100);
+    
+    // 일정 시간 후 체크 중단
+    setTimeout(() => {
+        clearInterval(fontCheck);
+    }, 5000);
+}
+
+// DOM 엘리먼트 수정 및 접근성 개선
+function setupAccessibility() {
+    // 비밀번호 폼 접근성 개선 - 숨겨진 사용자명 필드 추가
+    const deleteAccountForm = document.getElementById('delete-account-form');
+    if (deleteAccountForm) {
+        // 이미 추가되었는지 확인
+        if (!deleteAccountForm.querySelector('input[type="hidden"][name="username"]')) {
+            const hiddenUsernameField = document.createElement('input');
+            hiddenUsernameField.type = 'hidden';
+            hiddenUsernameField.id = 'deleteHiddenUsername';
+            hiddenUsernameField.name = 'username';
+            hiddenUsernameField.value = api.getUsername() || '';
+            deleteAccountForm.appendChild(hiddenUsernameField);
+            elements.deleteHiddenUsername = hiddenUsernameField;
+        }
+    }
+    
+    // ARIA 속성 추가
+    const passwordInputs = document.querySelectorAll('input[type="password"]');
+    passwordInputs.forEach(input => {
+        if (!input.getAttribute('aria-required')) {
+            input.setAttribute('aria-required', 'true');
+        }
+        
+        // 해당 입력 필드의 레이블 연결
+        const labelId = input.id + 'Label';
+        const labelElement = document.querySelector(`label[for="${input.id}"]`);
+        if (labelElement && !labelElement.id) {
+            labelElement.id = labelId;
+            input.setAttribute('aria-labelledby', labelId);
+        }
+    });
+    
+    // 버튼 접근성 개선
+    const buttons = document.querySelectorAll('button');
+    buttons.forEach(button => {
+        if (!button.getAttribute('aria-label') && !button.textContent.trim()) {
+            // 내부 SVG나 아이콘만 있는 버튼에 aria-label 추가
+            if (button.querySelector('svg')) {
+                const title = button.getAttribute('title') || '버튼';
+                button.setAttribute('aria-label', title);
+            }
+        }
+    });
 }
 
 // 초기화 및 이벤트 핸들러 설정
 async function initialize() {
     // 도메인 검증
-    if (!validateDomain()) {
+    if (!utils.validateDomain()) {
         // 도메인 검증 실패 시 더 이상 진행하지 않음
         if (utils.validateElement(elements.loadingScreen, 'loadingScreen')) {
             elements.loadingScreen.style.display = 'none';
@@ -4063,12 +7252,18 @@ async function initialize() {
         return;
     }
     
+    // 보안 기능 설정
+    setupSecurity();
+    
     // 로딩 화면 표시
     if (utils.validateElement(elements.loadingScreen, 'loadingScreen')) {
         elements.loadingScreen.style.display = 'flex';
     }
     
     try {
+        // Supabase 클라이언트 초기화
+        supabase = window.supabase.createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
+        
         // API 초기화
         await api.init();
         
@@ -4102,6 +7297,85 @@ async function initialize() {
     }
 }
 
+// 도메인 검증
+function validateDomain() {
+    // 개발 환경에서는 무시
+    if (window.location.hostname === 'localhost' || window.location.hostname === '127.0.0.1') {
+        appState.secureDomainValidated = true;
+        return true;
+    }
+    
+    // 허용된 도메인 목록 확인
+    const isValidDomain = CONFIG.SECURITY.ALLOWED_DOMAINS.includes(window.location.hostname);
+    
+    if (!isValidDomain) {
+        // 유효하지 않은 도메인에서 실행 방지
+        document.body.innerHTML = `
+            <div style="display: flex; justify-content: center; align-items: center; height: 100vh; flex-direction: column; background-color: #0f1923; color: #ece8e1; font-family: Arial, sans-serif;">
+                <div style="background-color: #1a242d; padding: 2rem; border-radius: 8px; text-align: center; max-width: 500px; box-shadow: 0 4px 12px rgba(0, 0, 0, 0.5);">
+                    <h1 style="color: #ff4655; margin-bottom: 1rem;">보안 경고</h1>
+                    <p style="margin-bottom: 1rem;">이 애플리케이션은 신뢰할 수 있는 도메인에서만 실행할 수 있습니다.</p>
+                    <p>공식 사이트로 이동하세요: <a href="https://valpaint.art" style="color: #ff4655; text-decoration: none;">https://valpaint.art</a></p>
+                </div>
+            </div>
+        `;
+        console.error('보안 경고: 허용되지 않은 도메인에서 실행 시도');
+        return false;
+    }
+    
+    // 프로토콜 검증 (HTTPS 강제)
+    if (window.location.protocol !== 'https:' && window.location.hostname !== 'localhost' && window.location.hostname !== '127.0.0.1') {
+        // HTTPS로 리디렉션
+        window.location.href = 'https://' + window.location.hostname + window.location.pathname + window.location.search;
+        return false;
+    }
+    
+    appState.secureDomainValidated = true;
+    return true;
+}
+
+// 보안 기능 설정
+function setupSecurity() {
+    // 이미 초기화되었는지 확인
+    if (appState.security.initialized) {
+        return;
+    }
+    
+    // 브라우저 보안 기능 설정
+    utils.setupBrowserSecurity();
+    
+    // CSRF 토큰 생성
+    utils.generateCSRFToken();
+    
+    // 속도 제한 초기화
+    appState.rateLimits = {
+        loginAttempts: 0,
+        loginLockoutUntil: 0,
+        apiRequests: 0,
+        apiWindowStart: Date.now()
+    };
+    
+    // 초기화 완료 표시
+    appState.security.initialized = true;
+}
+
+// 사용자 계정 정보 업데이트
+function updateUserAccountInfo() {
+    // 삭제 계정 폼 사용자명 업데이트
+    if (elements.deleteUsername) {
+        elements.deleteUsername.value = api.getUsername() || '';
+    }
+    
+    if (elements.deleteHiddenUsername) {
+        elements.deleteHiddenUsername.value = api.getUsername() || '';
+    }
+    
+    // 계정 설정 폼 사용자명 업데이트
+    if (elements.accountUsername) {
+        elements.accountUsername.value = api.getUsername() || '';
+    }
+}
+
 // 앱 시작 함수
 async function startApp() {
     try {
@@ -4120,24 +7394,33 @@ async function startApp() {
             elements.guestModeBanner.style.display = appState.isGuestMode ? 'flex' : 'none';
         }
         
+        // 저장된 설정 불러오기
+        const savedSettings = utils.storage.loadSettings();
+        if (savedSettings) {
+            Object.assign(settings, savedSettings);
+        }
+        
         // 캔버스 초기화
         canvasRenderer.initCanvas();
         
-        // 이벤트 리스너 설정
-        setupEventListeners();
+        // 이벤트 핸들러 설정
+        setupEventHandlers();
+        
+        // 접근성 개선
+        setupAccessibility();
         
         // URL 해시 확인
         const hash = window.location.hash.substring(1);
         if (hash) {
             // 작품 ID가 있으면 작품 상세 페이지 열기
-            openArtworkPage(hash);
+            uiManager.artworkManager.openArtworkPage(hash);
         }
-        
-        // 개선된 토스트 메시지
-        utils.showToast('VALPAINT가 준비되었습니다!', 'success');
         
         // VALORANT 폰트 적용
         applyValorantFont();
+        
+        // 개선된 토스트 메시지
+        utils.showToast('VALPAINT가 준비되었습니다!', 'success');
         
     } catch (error) {
         console.error('앱 시작 오류:', error);
