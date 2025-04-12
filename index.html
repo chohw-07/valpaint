@@ -1536,10 +1536,10 @@
                 </div>
                 
                 <!-- 로그인 폼 -->
-                <form id="login-form" class="auth-form">
+                <form id="login-form" class="auth-form" onsubmit="return handleLogin(event)">
                     <div class="form-group">
                         <label class="form-label">작가명</label>
-                        <input type="text" class="form-control" id="loginUsername" placeholder="작가명을 입력하세요" required>
+                        <input type="text" class="form-control" id="loginUsername" placeholder="작가명을 입력하세요" autocomplete="username" required>
                     </div>
                     <div class="form-group">
                         <label class="form-label">비밀번호</label>
@@ -1549,10 +1549,10 @@
                 </form>
                 
                 <!-- 회원가입 폼 -->
-                <form id="register-form" class="auth-form" style="display: none;">
+                <form id="register-form" class="auth-form" style="display: none;" onsubmit="return handleRegister(event)">
                     <div class="form-group">
                         <label class="form-label">작가명</label>
-                        <input type="text" class="form-control" id="registerUsername" placeholder="사용할 작가명을 입력하세요" required>
+                        <input type="text" class="form-control" id="registerUsername" placeholder="사용할 작가명을 입력하세요" autocomplete="username" required>
                     </div>
                     <div class="form-group">
                         <label class="form-label">비밀번호</label>
@@ -1760,7 +1760,7 @@
                 <form id="account-settings-form">
                     <div class="form-group">
                         <label class="form-label">작가명</label>
-                        <input type="text" class="form-control" id="accountUsername" placeholder="작가명 입력" required>
+                        <input type="text" class="form-control" id="accountUsername" placeholder="작가명 입력" autocomplete="username" required>
                     </div>
                     <div class="form-group">
                         <label class="form-label">현재 비밀번호</label>
@@ -1804,7 +1804,7 @@
                     </ul>
                 </div>
                 
-                <form id="delete-account-form" style="margin-top: 20px;">
+                <form id="delete-account-form" style="margin-top: 20px;" onsubmit="return confirmDeleteAccount(event)">
                     <div class="form-group">
                         <label class="form-label">비밀번호 확인</label>
                         <input type="password" class="form-control" id="deleteConfirmPassword" placeholder="계정 삭제를 위해 비밀번호를 입력하세요" autocomplete="current-password" required>
@@ -1875,11 +1875,11 @@
                     <div id="customEmojiSettings" style="display: none;">
                         <div class="form-group">
                             <label class="form-label">색칠된 이모지</label>
-                            <input type="text" class="form-control" id="filledEmojiInput" maxlength="1">
+                            <input type="text" class="form-control" id="filledEmojiInput" maxlength="1" autocomplete="off">
                         </div>
                         <div class="form-group">
                             <label class="form-label">색칠 안 된 이모지</label>
-                            <input type="text" class="form-control" id="emptyEmojiInput" maxlength="1">
+                            <input type="text" class="form-control" id="emptyEmojiInput" maxlength="1" autocomplete="off">
                         </div>
                     </div>
                 </form>
@@ -1902,7 +1902,7 @@
                 <form id="file-form">
                     <div id="saveFormGroup" class="form-group">
                         <label class="form-label">파일 이름</label>
-                        <input type="text" class="form-control" id="fileNameInput" placeholder="파일 이름 입력">
+                        <input type="text" class="form-control" id="fileNameInput" placeholder="파일 이름 입력" autocomplete="off">
                     </div>
                 </form>
                 <div id="fileListGroup">
@@ -1950,7 +1950,7 @@
                 <form id="import-form">
                     <div id="importFileInput" style="display: none;" class="form-group">
                         <label class="form-label">VAL 파일 선택</label>
-                        <input type="file" class="form-control" id="fileInput" accept=".val">
+                        <input type="file" class="form-control" id="fileInput" accept=".val" autocomplete="off">
                         <p style="margin-top: 10px; color: var(--text-muted);">* .val 확장자 파일만 지원합니다.</p>
                     </div>
                 </form>
@@ -1958,7 +1958,7 @@
                 <form id="export-form">
                     <div id="exportFileNameGroup" style="display: none;" class="form-group">
                         <label class="form-label">내보낼 파일 이름</label>
-                        <input type="text" class="form-control" id="exportFileName" placeholder="파일 이름 입력">
+                        <input type="text" class="form-control" id="exportFileName" placeholder="파일 이름 입력" autocomplete="off">
                     </div>
                 </form>
                 
@@ -2008,11 +2008,11 @@
                 <form id="share-form">
                     <div class="form-group">
                         <label class="form-label">공유 제목</label>
-                        <input type="text" class="form-control" id="shareTitleInput" placeholder="작품의 제목을 입력하세요" required>
+                        <input type="text" class="form-control" id="shareTitleInput" placeholder="작품의 제목을 입력하세요" autocomplete="off" required>
                     </div>
                     <div class="form-group">
                         <label class="form-label">태그 (쉼표로 구분)</label>
-                        <input type="text" class="form-control" id="shareTagsInput" placeholder="예: 풍경,동물,아트">
+                        <input type="text" class="form-control" id="shareTagsInput" placeholder="예: 풍경,동물,아트" autocomplete="off">
                     </div>
                     <div class="form-group">
                         <label class="form-label">설명 (선택사항)</label>
@@ -2195,7 +2195,7 @@
                         <circle cx="11" cy="11" r="8"></circle>
                         <line x1="21" y1="21" x2="16.65" y2="16.65"></line>
                     </svg>
-                    <input type="text" class="search-input" id="searchInput" placeholder="검색어 입력...">
+                    <input type="text" class="search-input" id="searchInput" placeholder="검색어 입력..." autocomplete="off">
                 </div>
                 
                 <div class="filter-dropdown">
@@ -2427,6 +2427,7 @@
         
         // 계정 삭제 요소
         deleteAccountForm: document.getElementById('delete-account-form'),
+        deleteAccountUsername: document.getElementById('deleteAccountUsername'),
         deleteConfirmPassword: document.getElementById('deleteConfirmPassword'),
         deleteConfirmCheck: document.getElementById('deleteConfirmCheck'),
         deleteConfirmBtn: document.getElementById('deleteConfirmBtn'),
@@ -6217,8 +6218,8 @@ if (elements.deleteConfirmCheck && elements.deleteConfirmPassword) {
                     
                     // 폼 표시 전환
                     if (tabName === 'login') {
-                        elements.loginForm.style.display = 'block';
-                        elements.registerForm.style.display = 'none';
+            elements.loginForm.style.display = 'block';
+            elements.registerForm.style.display = 'none';
                     } else {
                         elements.loginForm.style.display = 'none';
                         elements.registerForm.style.display = 'block';
