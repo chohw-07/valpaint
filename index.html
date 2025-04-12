@@ -1536,31 +1536,31 @@
                 </div>
                 
                 <!-- 로그인 폼 -->
-                <form id="login-form" class="auth-form" onsubmit="return handleLogin(event)">
+                <form id="login-form" class="auth-form">
                     <div class="form-group">
                         <label class="form-label">작가명</label>
-                        <input type="text" class="form-control" id="loginUsername" placeholder="작가명을 입력하세요" autocomplete="username" required>
+                        <input type="text" class="form-control" id="loginUsername" placeholder="작가명을 입력하세요" required>
                     </div>
                     <div class="form-group">
                         <label class="form-label">비밀번호</label>
-                        <input type="password" class="form-control" id="loginPassword" placeholder="비밀번호를 입력하세요" autocomplete="current-password" required>
+                        <input type="password" class="form-control" id="loginPassword" placeholder="비밀번호를 입력하세요" required>
                     </div>
                     <button type="submit" class="btn btn-accent" style="width: 100%;">로그인</button>
                 </form>
                 
                 <!-- 회원가입 폼 -->
-                <form id="register-form" class="auth-form" style="display: none;" onsubmit="return handleRegister(event)">
+                <form id="register-form" class="auth-form" style="display: none;">
                     <div class="form-group">
                         <label class="form-label">작가명</label>
-                        <input type="text" class="form-control" id="registerUsername" placeholder="사용할 작가명을 입력하세요" autocomplete="username" required>
+                        <input type="text" class="form-control" id="registerUsername" placeholder="사용할 작가명을 입력하세요" required>
                     </div>
                     <div class="form-group">
                         <label class="form-label">비밀번호</label>
-                        <input type="password" class="form-control" id="registerPassword" placeholder="간단한 비밀번호를 입력하세요" autocomplete="new-password" required>
+                        <input type="password" class="form-control" id="registerPassword" placeholder="간단한 비밀번호를 입력하세요" required>
                     </div>
                     <div class="form-group">
                         <label class="form-label">비밀번호 확인</label>
-                        <input type="password" class="form-control" id="registerPasswordConfirm" placeholder="비밀번호를 다시 입력하세요" autocomplete="new-password" required>
+                        <input type="password" class="form-control" id="registerPasswordConfirm" placeholder="비밀번호를 다시 입력하세요" required>
                     </div>
                     
                     <!-- 경고 메시지 추가 -->
@@ -1760,15 +1760,15 @@
                 <form id="account-settings-form">
                     <div class="form-group">
                         <label class="form-label">작가명</label>
-                        <input type="text" class="form-control" id="accountUsername" placeholder="작가명 입력" autocomplete="username" required>
+                        <input type="text" class="form-control" id="accountUsername" placeholder="작가명 입력" required>
                     </div>
                     <div class="form-group">
                         <label class="form-label">현재 비밀번호</label>
-                        <input type="password" class="form-control" id="accountCurrentPassword" placeholder="현재 비밀번호 입력" autocomplete="current-password" required>
+                        <input type="password" class="form-control" id="accountCurrentPassword" placeholder="현재 비밀번호 입력" required>
                     </div>
                     <div class="form-group">
                         <label class="form-label">새 비밀번호 (선택사항)</label>
-                        <input type="password" class="form-control" id="accountNewPassword" placeholder="변경을 원하시면 입력하세요" autocomplete="new-password">
+                        <input type="password" class="form-control" id="accountNewPassword" placeholder="변경을 원하시면 입력하세요">
                     </div>
                 </form>
             </div>
@@ -1804,10 +1804,10 @@
                     </ul>
                 </div>
                 
-                <form id="delete-account-form" style="margin-top: 20px;" onsubmit="return confirmDeleteAccount(event)">
+                <form id="delete-account-form" style="margin-top: 20px;">
                     <div class="form-group">
                         <label class="form-label">비밀번호 확인</label>
-                        <input type="password" class="form-control" id="deleteConfirmPassword" placeholder="계정 삭제를 위해 비밀번호를 입력하세요" autocomplete="current-password" required>
+                        <input type="password" class="form-control" id="deleteConfirmPassword" placeholder="계정 삭제를 위해 비밀번호를 입력하세요" required>
                     </div>
                     
                     <div class="checkbox-wrapper" style="margin-top: 15px;">
@@ -1875,11 +1875,11 @@
                     <div id="customEmojiSettings" style="display: none;">
                         <div class="form-group">
                             <label class="form-label">색칠된 이모지</label>
-                            <input type="text" class="form-control" id="filledEmojiInput" maxlength="1" autocomplete="off">
+                            <input type="text" class="form-control" id="filledEmojiInput" maxlength="1">
                         </div>
                         <div class="form-group">
                             <label class="form-label">색칠 안 된 이모지</label>
-                            <input type="text" class="form-control" id="emptyEmojiInput" maxlength="1" autocomplete="off">
+                            <input type="text" class="form-control" id="emptyEmojiInput" maxlength="1">
                         </div>
                     </div>
                 </form>
@@ -1902,7 +1902,7 @@
                 <form id="file-form">
                     <div id="saveFormGroup" class="form-group">
                         <label class="form-label">파일 이름</label>
-                        <input type="text" class="form-control" id="fileNameInput" placeholder="파일 이름 입력" autocomplete="off">
+                        <input type="text" class="form-control" id="fileNameInput" placeholder="파일 이름 입력">
                     </div>
                 </form>
                 <div id="fileListGroup">
@@ -1950,7 +1950,7 @@
                 <form id="import-form">
                     <div id="importFileInput" style="display: none;" class="form-group">
                         <label class="form-label">VAL 파일 선택</label>
-                        <input type="file" class="form-control" id="fileInput" accept=".val" autocomplete="off">
+                        <input type="file" class="form-control" id="fileInput" accept=".val">
                         <p style="margin-top: 10px; color: var(--text-muted);">* .val 확장자 파일만 지원합니다.</p>
                     </div>
                 </form>
@@ -1958,7 +1958,7 @@
                 <form id="export-form">
                     <div id="exportFileNameGroup" style="display: none;" class="form-group">
                         <label class="form-label">내보낼 파일 이름</label>
-                        <input type="text" class="form-control" id="exportFileName" placeholder="파일 이름 입력" autocomplete="off">
+                        <input type="text" class="form-control" id="exportFileName" placeholder="파일 이름 입력">
                     </div>
                 </form>
                 
@@ -2008,11 +2008,11 @@
                 <form id="share-form">
                     <div class="form-group">
                         <label class="form-label">공유 제목</label>
-                        <input type="text" class="form-control" id="shareTitleInput" placeholder="작품의 제목을 입력하세요" autocomplete="off" required>
+                        <input type="text" class="form-control" id="shareTitleInput" placeholder="작품의 제목을 입력하세요" required>
                     </div>
                     <div class="form-group">
                         <label class="form-label">태그 (쉼표로 구분)</label>
-                        <input type="text" class="form-control" id="shareTagsInput" placeholder="예: 풍경,동물,아트" autocomplete="off">
+                        <input type="text" class="form-control" id="shareTagsInput" placeholder="예: 풍경,동물,아트">
                     </div>
                     <div class="form-group">
                         <label class="form-label">설명 (선택사항)</label>
@@ -2195,7 +2195,7 @@
                         <circle cx="11" cy="11" r="8"></circle>
                         <line x1="21" y1="21" x2="16.65" y2="16.65"></line>
                     </svg>
-                    <input type="text" class="search-input" id="searchInput" placeholder="검색어 입력..." autocomplete="off">
+                    <input type="text" class="search-input" id="searchInput" placeholder="검색어 입력...">
                 </div>
                 
                 <div class="filter-dropdown">
@@ -2427,7 +2427,6 @@
         
         // 계정 삭제 요소
         deleteAccountForm: document.getElementById('delete-account-form'),
-        deleteAccountUsername: document.getElementById('deleteAccountUsername'),
         deleteConfirmPassword: document.getElementById('deleteConfirmPassword'),
         deleteConfirmCheck: document.getElementById('deleteConfirmCheck'),
         deleteConfirmBtn: document.getElementById('deleteConfirmBtn'),
@@ -5940,8 +5939,8 @@
             if (elements.deleteCancelBtn) {
                 elements.deleteCancelBtn.addEventListener('click', () => utils.hideModal(elements.deleteAccountModal));
             }
-// 삭제 확인 체크박스 이벤트
-if (elements.deleteConfirmCheck && elements.deleteConfirmPassword) {
+            // 삭제 확인 체크박스 이벤트
+            if (elements.deleteConfirmCheck && elements.deleteConfirmPassword) {
                 elements.deleteConfirmCheck.addEventListener('change', toggleDeleteConfirmButton);
                 elements.deleteConfirmPassword.addEventListener('input', toggleDeleteConfirmButton);
             }
@@ -6218,8 +6217,8 @@ if (elements.deleteConfirmCheck && elements.deleteConfirmPassword) {
                     
                     // 폼 표시 전환
                     if (tabName === 'login') {
-            elements.loginForm.style.display = 'block';
-            elements.registerForm.style.display = 'none';
+                        elements.loginForm.style.display = 'block';
+                        elements.registerForm.style.display = 'none';
                     } else {
                         elements.loginForm.style.display = 'none';
                         elements.registerForm.style.display = 'block';
@@ -6571,15 +6570,6 @@ if (elements.deleteConfirmCheck && elements.deleteConfirmPassword) {
             if (hash) {
                 // 작품 ID가 있으면 작품 상세 페이지 열기
                 openArtworkPage(hash);
-            }
-            
-            // 모든 중요 요소에 VALORANT 폰트 적용
-            applyValorantFont();
-            
-            // 계정 삭제 폼에 사용자명 설정
-            const deleteAccountUsername = document.getElementById('deleteAccountUsername');
-            if (deleteAccountUsername) {
-                deleteAccountUsername.value = api.getUsername() || '';
             }
             
             // 개선된 토스트 메시지
